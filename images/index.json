@@ -1,0 +1,9 @@
+{
+  "files": [
+    { "file": "airport.svg", "name": "Airport" },
+    { "file": "bus.svg", "name": "Bus" },
+    { "file": "ferry.svg", "name": "Ferry" },
+    { "file": "star.svg", "name": "Star" },
+    { "file": "train.svg", "name": "Train" }
+  ]
+}
