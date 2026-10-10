@@ -127,7 +127,9 @@
     const stackNum = !isCapsule && !chain && !hub && !!options.showNum && options.items.some((it) => it.num);
     const gap = options.gap || (chain ? 40 : isCapsule ? 23 : stackNum ? 21 : 15), radius = chain ? 13 : isCapsule ? 9.5 : stackNum ? 10 : 7, half = ((count - 1) * gap) / 2, axis = options.axis || { x: 0, y: 1 };
     const look = statusLook(palette, options.status || 'operational');
-    const pointAt = (i) => ({ x: (i * gap - half) * axis.x, y: (i * gap - half) * axis.y });
+    /* spread: the items stand where they are (dx, dy) — across more than one node — and the shape runs through all of them */
+    const spread = !!options.spread;
+    const pointAt = (i) => (spread ? { x: options.items[i].dx, y: options.items[i].dy } : { x: (i * gap - half) * axis.x, y: (i * gap - half) * axis.y });
     const first = pointAt(0), last = pointAt(count - 1);
     let svg = `<g transform="translate(${round2dp(x)} ${round2dp(y)})" opacity="${look.op}">`;
     if (chain) {
@@ -138,22 +140,36 @@
       const points = options.items.map((it, i) => (it.dx != null ? { x: it.dx, y: it.dy } : pointAt(i)));
       let extent = 0;
       points.forEach((p) => { extent = Math.max(extent, Math.hypot(p.x, p.y)); });
-      for (let i = 0; i + 1 < points.length; i++) {
-        svg += `<line x1="${round2dp(points[i].x)}" y1="${round2dp(points[i].y)}" x2="${round2dp(points[i + 1].x)}" y2="${round2dp(points[i + 1].y)}" stroke="${look.stroke}" stroke-width="${withNumbers ? 13 : 9.5}" stroke-linecap="round"/>`;
-      }
-      for (let i = 0; i + 1 < points.length; i++) {
-        svg += `<line x1="${round2dp(points[i].x)}" y1="${round2dp(points[i].y)}" x2="${round2dp(points[i + 1].x)}" y2="${round2dp(points[i + 1].y)}" stroke="${look.fill}" stroke-width="${withNumbers ? 7.5 : 5.5}" stroke-linecap="round"/>`;
-      }
-      points.forEach((p) => { svg += `<circle cx="${round2dp(p.x)}" cy="${round2dp(p.y)}" r="${edge}" fill="${look.stroke}"/>`; });     // outlines first, then rings, then cores,
-      points.forEach((p) => { svg += `<circle cx="${round2dp(p.x)}" cy="${round2dp(p.y)}" r="${ring}" fill="#fff"/>`; });          // so neighbouring discs merge cleanly
+      /* every outline first (the neck's and the discs'), then everything that fills them, so no outline is left running
+         across the neck between two discs */
+      const neck = (colour, width) => { let out = ''; for (let i = 0; i + 1 < points.length; i++) out += `<line x1="${round2dp(points[i].x)}" y1="${round2dp(points[i].y)}" x2="${round2dp(points[i + 1].x)}" y2="${round2dp(points[i + 1].y)}" stroke="${colour}" stroke-width="${width}" stroke-linecap="round"/>`; return out; };
+      svg += neck(look.stroke, withNumbers ? 13 : 9.5);
+      points.forEach((p) => { svg += `<circle cx="${round2dp(p.x)}" cy="${round2dp(p.y)}" r="${edge}" fill="${look.stroke}"/>`; });
+      svg += neck(look.fill, withNumbers ? 7.5 : 5.5);
+      points.forEach((p) => { svg += `<circle cx="${round2dp(p.x)}" cy="${round2dp(p.y)}" r="${ring}" fill="${look.fill}"/>`; });
+      /* where a neck to another node leaves the symbol, the outline circle would run across its mouth: open it, so the neck's
+         white runs straight into the ring */
+      (options.necks || []).forEach((degrees) => {
+        const ux = Math.cos(degrees * Math.PI / 180), uy = Math.sin(degrees * Math.PI / 180);
+        let gate = null;
+        points.forEach((p) => {
+          const along = p.x * ux + p.y * uy, across = Math.abs(p.y * ux - p.x * uy);
+          if (across >= ring - 0.5) return;
+          const reach = along + Math.sqrt(edge * edge - across * across);
+          if (!gate || reach > gate.to) gate = { from: along + Math.sqrt(ring * ring - across * across) - 0.6, to: reach + 0.8 };
+        });
+        if (gate) svg += `<line x1="${round2dp(ux * gate.from)}" y1="${round2dp(uy * gate.from)}" x2="${round2dp(ux * gate.to)}" y2="${round2dp(uy * gate.to)}" stroke="${look.fill}" stroke-width="${options.neckWidth || 5.5}"/>`;
+      });
       options.items.forEach((item, i) => {
         const point = points[i], number = withNumbers && item.num;
         svg += `<circle cx="${round2dp(point.x)}" cy="${round2dp(point.y)}" r="${core}" fill="${item.color}"/>${number ? `<g transform="translate(${round2dp(point.x)} ${round2dp(point.y)})">${numText(item.num, item.color, core)}</g>` : ''}`;
       });
       return { svg: svg + '</g>', extent: extent + edge + 3 };
     }
-    svg += `<line x1="${round2dp(first.x)}" y1="${round2dp(first.y)}" x2="${round2dp(last.x)}" y2="${round2dp(last.y)}" stroke="${look.stroke}" stroke-width="${2 * radius + 5}" stroke-linecap="round"${look.dash ? ' stroke-dasharray="0.1 0"' : ''}/>`;
-    svg += `<line x1="${round2dp(first.x)}" y1="${round2dp(first.y)}" x2="${round2dp(last.x)}" y2="${round2dp(last.y)}" stroke="${look.fill}" stroke-width="${2 * radius}" stroke-linecap="round"/>`;
+    const through = options.items.map((it, i) => pointAt(i)).map((q) => `${round2dp(q.x)},${round2dp(q.y)}`).join(' ') || `${round2dp(first.x)},${round2dp(first.y)}`;
+    const shape = (colour, width, extra) => `<polyline points="${count > 1 ? through : through + ' ' + through}" fill="none" stroke="${colour}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"${extra || ''}/>`;
+    svg += shape(look.stroke, 2 * radius + 5, look.dash ? ' stroke-dasharray="0.1 0"' : '');
+    svg += shape(look.fill, 2 * radius);
     if (!hub) options.items.forEach((item, i) => {
       const point = pointAt(i);
       if (isCapsule) {
@@ -162,13 +178,13 @@
       } else if (stackNum && item.num) svg += `<g transform="translate(${round2dp(point.x)} ${round2dp(point.y)})"><circle r="8.2" fill="${item.color}"/>${numText(item.num, item.color, 8.2)}</g>`;
       else svg += `<circle cx="${round2dp(point.x)}" cy="${round2dp(point.y)}" r="${stackNum ? 6 : 4.8}" fill="${item.color}"/>`;
     });
-    return { svg: svg + '</g>', extent: half + radius + 3 };
+    return { svg: svg + '</g>', extent: (spread ? Math.max(...options.items.map((it) => Math.hypot(it.dx, it.dy))) : half) + radius + 3 };
   };
 
   /* Mega-station "block": an interchange complex (and any connecting stations merged into it) drawn as one shape, each
      member kept at its own freely-movable spot. The shape itself stands for the walkways between them, so no separate
      connecting lines are drawn between the members.
-     style: 'rapidkl' (a filled bar, like the interchange boxes on the official map) | 'shape' (an outlined circle/square).
+     style: 'pill_shaped' (a filled bar, like the interchange boxes on the official map) | 'shape' (an outlined circle/square).
      o.members: [{ id, dx, dy, arrive:{x,y}, mono }] (mono = that member's own line colour, when it has just one). */
   symbols.block = (x, y, options) => {
     const palette = options.pal, members = options.members, rapid = options.style !== 'shape', isSquare = options.shape === 'square', size = options.size, vert = options.orientation === 'vertical';
@@ -185,7 +201,7 @@
     } else {
       svg += `<circle r="${round2dp(size + pad)}" fill="${fill}" stroke="${palette.ink}" stroke-width="5"/>`;
     }
-    /* The inner connecting line is retained for outlined shape blocks. For RapidKL bars, omit the decorative rail:
+    /* The inner connecting line is retained for outlined shape blocks. For pill-shaped blocks, omit the decorative rail:
        member positions still use geo.blockPoint/geo.blockNearestT and remain fully draggable along the same axis. */
     let innerD;
     if (!rapid && !isSquare) innerD = null;   // circle: drawn as a <circle> below (a true ring, not a path)

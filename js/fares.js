@@ -13,10 +13,15 @@
    Networks (optional): lines run by different operators can be grouped — [{ id, name, lines: [line ids], types,
    transferFee? }] — each with its own fare types, and the traveller picks a type per network. A ride is priced with
    the type picked for its own line's network; lines in no network use the top-level "types" (or one implicit type).
-   Type ids are unique across the whole file, so a pair's per-type object is never ambiguous. */
+   Type ids are unique across the whole file, so a pair's per-type object is never ambiguous.
+
+   Services (optional): a service of services.json can have fares of its own — "servicePairs": { service id: { "A|B":
+   value, … } }, the same pair keys and values as above. A ride on that service between two stations it has a fare for
+   costs that, as one ticket of its own (priced with the types of its line's network); any other pair falls back to the
+   ordinary fares above. */
 (function (TM) {
   const fares = (TM.fares = { data: null, loaded: false });
-  const blank = () => ({ currency: '', transferMinutes: 0, transferFee: 0, networks: [], types: [], pairs: {} });
+  const blank = () => ({ currency: '', transferMinutes: 0, transferFee: 0, networks: [], types: [], pairs: {}, servicePairs: {} });
   const round2dp = TM.round2dp;
   const amount = (v) => v !== null && v !== undefined && v !== '' && isFinite(v) && +v >= 0;
   const ID_OK = /^[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -26,8 +31,7 @@
   /* Every pair of real, non-fantasy stations a line calls at (its own rep ids) — used by the "whole line" way of
      entering a fare: pick a line and an amount, and this loop is what actually writes it, one Station–Station pair
      at a time, exactly as if each pair had been typed in on its own. Fantasy stops are left out, same as routing;
-     a hidden (provisional / under-construction / abandoned / demolished) station is still a real one, so it is kept
-     — fares are part of the map's own data, not a view setting. */
+     a hidden (provisional / under-construction / abandoned / demolished) station can still be choose to display*/
   fares.pairsForLine = (line) => {
     const store = TM.store, reps = [];
     (line.path || []).forEach((item) => {
@@ -55,21 +59,33 @@
           transferFee: isFinite(j.transferFee) && j.transferFee >= 0 ? +j.transferFee : 0,
           networks: fares.normNetworks(j.networks, used),
           types: fares.normTypes(j.types, used),
-          pairs: {},
+          pairs: fares.normPairs(j.pairs, used),
+          servicePairs: {},
         };
-        if (j.pairs && typeof j.pairs === 'object') Object.entries(j.pairs).forEach(([pairKey, value]) => {
-          if (!/^[^|]+\|[^|]+$/.test(pairKey)) return;
-          if (typeof value === 'number') { if (amount(value)) fares.data.pairs[pairKey] = round2dp(value); return; }
-          if (!value || typeof value !== 'object') return;
-          const amounts = {};
-          Object.entries(value).forEach(([t, a]) => { if (used.has(t) && amount(a)) amounts[t] = round2dp(+a); });
-          if (Object.keys(amounts).length) fares.data.pairs[pairKey] = amounts;
+        if (j.servicePairs && typeof j.servicePairs === 'object') Object.entries(j.servicePairs).forEach(([serviceId, table]) => {
+          const pairs = fares.normPairs(table, used);
+          if (Object.keys(pairs).length) fares.data.servicePairs[serviceId] = pairs;
         });
       }
     } catch (e) { /* no fares.json for this map — treated as empty */ }
     fares.loaded = true;
     fares.sel = {};
     return fares.data;
+  };
+
+  /* a table of pair fares as stored, cleaned: "A|B" → one amount, or amounts by fare type id (used: every type id of the file) */
+  fares.normPairs = (raw, used) => {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    Object.entries(raw).forEach(([pairKey, value]) => {
+      if (!/^[^|]+\|[^|]+$/.test(pairKey)) return;
+      if (typeof value === 'number') { if (amount(value)) out[pairKey] = round2dp(value); return; }
+      if (!value || typeof value !== 'object') return;
+      const amounts = {};
+      Object.entries(value).forEach(([t, a]) => { if (used.has(t) && amount(a)) amounts[t] = round2dp(+a); });
+      if (Object.keys(amounts).length) out[pairKey] = amounts;
+    });
+    return out;
   };
 
   /* used: type ids already taken elsewhere in the file (a repeat is dropped) */
@@ -137,7 +153,20 @@
     const value = fares.data.pairs[fares.key(stationA, stationB)];
     return value == null ? null : fares.priceFor(value, networkId);
   };
+  /* the same on a service that has a fare of its own for that pair — null when it has none (the ordinary fare then applies) */
+  fares.getOwn = (stationA, stationB, networkId, serviceId) => {
+    const table = fares.data && fares.data.servicePairs[serviceId], value = table && table[fares.key(stationA, stationB)];
+    return value == null ? null : fares.priceFor(value, networkId);
+  };
+  /* Every pair of the stations a service calls at (its own rep ids), for entering one fare for them all. */
+  fares.pairsForService = (service) => {
+    const store = TM.store, run = TM.route.runTimes(service), reps = [];
+    (run ? run.fwd.rows : []).forEach((row) => { if (!row.calls) return; const leadId = store.rep(row.id); if (!reps.includes(leadId)) reps.push(leadId); });
+    const out = [];
+    for (let i = 0; i < reps.length; i++) for (let j = i + 1; j < reps.length; j++) out.push([reps[i], reps[j]]);
+    return out;
+  };
   /* does the map price anything at all, with the types picked? */
-  fares.hasAny = () => !!fares.data && Object.values(fares.data.pairs).some((v) => fares.networks().some((n) => fares.priceFor(v, n.id) != null));
+  fares.hasAny = () => !!fares.data && [...Object.values(fares.data.pairs), ...Object.values(fares.data.servicePairs).flatMap((t) => Object.values(t))].some((v) => fares.networks().some((n) => fares.priceFor(v, n.id) != null));
   fares.fmt = (v) => (v == null ? '—' : `${fares.data && fares.data.currency ? fares.data.currency + ' ' : ''}${v.toFixed(2)}`);
 })(window.TM);

@@ -33,6 +33,7 @@
       langOrder: Array.isArray(raw.langOrder) ? raw.langOrder.map(String) : null,
       languages: TM.normLanguages(raw.languages),
       numberMode: TM.NUMBER_MODES.includes(raw.numberMode) ? raw.numberMode : null,          // default "Inside symbol shows" (null: the app's own)
+      autoSymbols: TM.normAutoSymbols(raw.autoSymbols),   // symbol of an automatic station / interchange (null: the plain ones)
       statusDisplay: TM.normStatusDisplay(raw.statusDisplay),   // default for showing each kind of station (planned, abandoned…); null: the app's own
       numModeOverride: typeof raw.numModeOverride === 'boolean' ? raw.numModeOverride : null,   // default "Allow a station to override this"   // label languages this map adds to the four every map has (TM.LANGS)   // this map's preferred label-language hierarchy, e.g. ["ms","en","zh-Hant","ta"]
       /* keeps what a visitor changed under the key older versions used — only the map that really is that map: a folder
@@ -70,7 +71,7 @@
     /* one browser key per map: should two maps still claim the old shared key, only the first listed keeps it */
     let legacyTaken = false;
     maps.shipped.forEach((m) => { if (m.legacyStorage) { if (legacyTaken) m.legacyStorage = false; legacyTaken = true; } });
-    if (!maps.shipped.length) maps.shipped = [maps.normMeta({ names: { en: 'Fantasy Transit' } }, maps.defaultId, 'files')];
+    if (!maps.shipped.length) maps.shipped = [maps.normMeta({ names: { en: 'Transit' } }, maps.defaultId, 'files')];
     maps.user = readReg();
     /* a map made in this browser whose id was later taken by a published map keeps its data under a new id */
     let moved = false;
@@ -103,6 +104,9 @@
   maps.title = (m) => maps.name(m || maps.current, 'en') || 'Transit map';
 
   maps.dir = (m) => `maps/${(m || maps.current).id}/`;
+  /* the picture shown for a map without a logo of its own, and the logo of a map as HTML — one for every page */
+  maps.DEFAULT_LOGO = '<svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="var(--accent)"/><path d="M7 22h6a4 4 0 0 0 4-4v-4a4 4 0 0 1 4-4h4" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/><circle cx="7" cy="22" r="3" fill="#fff"/><circle cx="25" cy="10" r="3" fill="#fff"/></svg>';
+  maps.logoHTML = (meta) => { const logoSrc = maps.logoSrc(meta); return logoSrc ? `<img class="logo" alt="" src="${TM.esc(logoSrc)}">` : maps.DEFAULT_LOGO; };
   maps.logoSrc = (meta) => {
     if (!meta || !meta.logo) return null;
     return /^(data:|https?:)/i.test(meta.logo) ? meta.logo : (meta.kind === 'files' && !/\.\./.test(meta.logo) ? maps.dir(meta) + meta.logo.replace(/^\/+/, '') : null);
@@ -204,6 +208,7 @@
       numberMode: options.numberMode !== undefined ? options.numberMode : sourceMeta.numberMode,
       numModeOverride: options.numModeOverride !== undefined ? options.numModeOverride : sourceMeta.numModeOverride,
       statusDisplay: options.statusDisplay !== undefined ? options.statusDisplay : sourceMeta.statusDisplay,
+      autoSymbols: options.autoSymbols !== undefined ? options.autoSymbols : sourceMeta.autoSymbols,
     }, id, 'user');
     persist(meta, mapPackage);
     return meta;
@@ -294,6 +299,7 @@
     if (sourceMeta.numberMode) meta.numberMode = sourceMeta.numberMode;
     if (typeof sourceMeta.numModeOverride === 'boolean') meta.numModeOverride = sourceMeta.numModeOverride;
     if (sourceMeta.statusDisplay) meta.statusDisplay = sourceMeta.statusDisplay;
+    if (sourceMeta.autoSymbols) meta.autoSymbols = sourceMeta.autoSymbols;
     meta.navigator = sourceMeta.navigator !== false;
     if (mapPackage.codes && Object.keys(mapPackage.codes).length) meta.codes = mapPackage.codes;
     if (mapPackage.labelPos && Object.keys(mapPackage.labelPos).length) meta.labelPos = mapPackage.labelPos;
@@ -321,12 +327,13 @@
     return files;
   };
 
-  const README = (id) => `Fantasy Transit Map — map "${id}"\n\n` +
+  const README = (id) => `Transit Map — map "${id}"\n\n` +
     `Use it in the browser:  open the site, then  Maps ▾ → Import map (.zip)  and choose this file.\n\n` +
-    `Publish it on your own copy of the site (GitHub Pages):\n` +
+    `Publish it on your own fork of the project:\n` +
     `  1. Unzip and put the folder "${id}" inside the project's maps/ folder.\n` +
     `  2. Add "${id}" to the "maps" list in maps/index.json.\n` +
-    `  3. Commit and push. It then appears in the map list for every visitor.\n`;
+    `  3. Commit and push. It then appears in the map list for every visitor.\n\n` +
+    `You can also make a pull request if you have a map with nice design, or of an unicluded area, or suggestions of new line or station.`;
 
   maps.exportZip = async (id) => {
     const mapPackage = await maps.snapshot(id), meta = mapPackage.meta, root = meta.id;

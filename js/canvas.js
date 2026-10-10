@@ -201,8 +201,8 @@
     const line = actions.activeLine(), canEdit = actions.canEdit(line), selection = TM.state.selected;
     if (target.sid) {
       const station = TM.store.stations.get(actions.memberOnActive(target.sid));
-      if (selection && selection.type === 'station' && TM.store.sameGroup(selection.id, target.sid)) return true;   // selected station: drag anywhere
-      return !!(station && actions.ownsStation(station) && canEdit && actions.indexOfStation(target.sid) >= 0);             // own station on the line being edited
+      if (selection && selection.type === 'station' && TM.store.shareMembers(target.sid).some((m) => TM.store.sameGroup(selection.id, m))) return true;   // selected station: drag anywhere — the symbol may be drawn under a partner's id
+      return !!(station && actions.ownsStation(station) && canEdit && actions.indexOfStation(station.id) >= 0);             // own station on the line being edited
     }
     if (!canEdit) return false;
     return target.wp !== undefined;

@@ -18,11 +18,11 @@
   const fallbackWalk = (a, b) => Math.max(1, TM.haversine(a.lat, a.lng, b.lat, b.lng) / 1000 / WALK_SPEED * 60 + WALK_OVERHEAD);
 
   /* flags: { showPlanned, showAbandoned, … } (TM.STATUS_TOGGLES) — a station of a hideable status is usable only when
-     its flag is not false; fantasy is always excluded */
+     its flag is not false (or it is on a non-operational line and flags.nonOperational asks for those); fantasy is always excluded */
   router.allowed = (station, flags) => {
     if (!station || station.status === 'fantasy') return false;
     const toggle = TM.STATUS_TOGGLES.find((x) => x.status === station.status);
-    return !toggle || flags[toggle.opt] !== false;
+    return !toggle || flags[toggle.opt] !== false || (!!flags.nonOperational && TM.store.nonOpStations().has(station.id));   // a non-operational line asked for brings its own stations
   };
 
   /* ---------- graph ---------- */
@@ -129,7 +129,7 @@
      own choice of which services run (default: every one not marked hidden). */
   /* flags.modes: the types of transport allowed (null = every one); flags.avoidLines: ids of lines not to ride (a
      branch goes with its line) */
-  router.avoided = (line, flags) => !!flags && ((flags.modes && !flags.modes.has(line.mode)) || (flags.avoidLines && flags.avoidLines.has(TM.store.rootId(line.id))));
+  router.avoided = (line, flags) => !!flags && ((flags.modes && !flags.modes.has(line.mode)) || (flags.avoidLines && flags.avoidLines.has(TM.store.rootId(line.id))) || (flags.nonOperational === false && TM.store.nonOperational(line)));
   router.serviceOn = (sv, flags) => (flags && flags.services && sv.id in flags.services ? !!flags.services[sv.id] : !sv.hidden);
   /* One way round of a service (see store.serviceRoute): its places in travel order (a join folds two codes of one
      place), whether it calls at each (place.calls — the termini always, a loop's every place by the stopping pattern),
@@ -205,6 +205,10 @@
       if (run && run.net === part.net) { run.alight = part.alight; run.parts.push(part); } else runs.push(run = { net: part.net, board: part.board, alight: part.alight, parts: [part] });
     });
     e.net = runs[0].net;   // the network boarded (its transfer fee)
+    if (e.service) {   // a service with a fare of its own for this ride: one ticket, priced alone
+      const own = TM.fares.getOwn(store.rep(e.board), store.rep(e.alight), e.net, e.service.id);
+      if (own != null) return TM.round2dp(own);
+    }
     for (const r of runs) {
       let fare = TM.fares.get(store.rep(r.board), store.rep(r.alight), r.net);
       if (fare == null && r.parts.length > 1) fare = r.parts.reduce((x, pt) => (x == null ? null : ((v) => (v == null ? null : x + v))(TM.fares.get(store.rep(pt.board), store.rep(pt.alight), r.net))), 0);
@@ -292,10 +296,18 @@
      get there (clock: minutes into the trip), or its average wait for a frequency; null when nothing runs. With no time
      set: the train's average wait; a train with no timetable: the map's transfer minutes (fares.json). */
   const ctx = { when: null };
-  const avgCache = new WeakMap();
+  const avgCache = new WeakMap(), waitCache = new WeakMap();
   const waitOf = (e, clock) => {
     const timed = e.sched;
-    if (timed && ctx.when != null) return TM.sched.next(timed.s, timed.dir, timed.off, e.board, ctx.when + clock * 60000);
+    if (timed && ctx.when != null) {
+      /* every ride from one stop of one train way (one per place it can get off at) waits for the same train at the same
+         moment: worked out once */
+      let kept = waitCache.get(timed.off);
+      if (!kept || kept.when !== ctx.when) waitCache.set(timed.off, kept = { when: ctx.when, byStop: new Map() });
+      const key = e.board + '|' + clock;
+      if (!kept.byStop.has(key)) kept.byStop.set(key, TM.sched.next(timed.s, timed.dir, timed.off, e.board, ctx.when + clock * 60000));
+      return kept.byStop.get(key);
+    }
     if (timed) {
       const key = timed.s, cached = avgCache.get(key) || avgCache.set(key, {}).get(key);
       if (!(timed.dir in cached)) cached[timed.dir] = TM.sched.averageWait(timed.s, timed.dir);
@@ -588,6 +600,8 @@
     legs.forEach((leg) => {
       if (leg.kind === 'walk') { if (leg.tapOut) current = null; return; }
       leg.fare = undefined;
+      const own = leg.service ? TM.fares.getOwn(store.rep(leg.board), store.rep(leg.alight), leg.net, leg.service.id) : null;
+      if (own != null) { current = null; segs.push({ own: TM.round2dp(own), leg, board: leg.board, alight: leg.alight, pieces: [] }); return; }   // its own ticket: never joined to a neighbour's
       leg.parts.forEach((part) => {
         if (current && current.net === part.net) { current.alight = part.alight; current.pieces.push(part); return; }
         segs.push(current = { net: part.net, leg: leg, board: part.board, alight: part.alight, pieces: [part] });
@@ -595,7 +609,7 @@
     });
     let cost = 0;
     segs.forEach((segment) => {
-      let fare = TM.fares.get(store.rep(segment.board), store.rep(segment.alight), segment.net);
+      let fare = segment.own != null ? segment.own : TM.fares.get(store.rep(segment.board), store.rep(segment.alight), segment.net);
       if (fare == null) fare = segment.pieces.reduce((x, pt) => { const partFare = TM.fares.get(store.rep(pt.board), store.rep(pt.alight), segment.net); return x == null || partFare == null ? null : x + partFare; }, 0);
       if (fare != null) fare = TM.round2dp(fare);
       segment.leg.fare = segment.leg.fare === undefined ? fare : segment.leg.fare == null || fare == null ? null : TM.round2dp(segment.leg.fare + fare);

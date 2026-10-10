@@ -163,7 +163,7 @@
     /* a line is drawn with its suggested stops in when it shows them (store.effectiveLine): they behave like any other stop —
        numbering, interchange, lanes — just dashed and marked; when hidden the line is exactly as if none were suggested */
     const HIDEABLE = Object.assign(Object.fromEntries(TM.STATUS_TOGGLES.map((t) => [t.status, t.opt])), { fantasy: 'showFantasy' });
-    const hiddenStatus = (t) => !!t && !!HIDEABLE[t.status] && !opts[HIDEABLE[t.status]];
+    const hiddenStatus = (t) => !!t && !!HIDEABLE[t.status] && !opts[HIDEABLE[t.status]] && !(opts.shownStations && opts.shownStations.has(t.id));
     /* "Hide line ends past hidden stations": a line (not a loop) whose first / last stops are all hidden by their Display
        toggle stops at its outermost stop still shown, instead of running on to nothing. A branch keeps its junction. */
     const trimHiddenEnds = (line) => {
@@ -310,6 +310,7 @@
       let casing = '', paint = '', hit = '', dimCasing = '', dimPaint = '';
       /* tunnels and elevated stretches between the line's point markers (TM.MARKS) */
       const structure = TM.structureLegs(model.line.path.map((it) => it.mk || null)), rails = symbols.railWidth(LINE_W);
+      let lastRun = null;
       model.geo.runs.forEach((run) => {
         const off = segs && !segs.has(ownIdx(run.i0));
         const path = model.line.path, legStruct = structure[run.i0];
@@ -319,9 +320,20 @@
         const auto = ends.some((t) => NOT_SOLID.has(t.status));
         /* hatched: short, wide-set blocks across the line (butt ends), like a line drawn in ticks */
         const dash = segmentStyle === 'dash' ? ' stroke-dasharray="14 8"' : segmentStyle === 'dashdot' ? ' stroke-dasharray="14 6 2 6"' : segmentStyle === 'hatch' ? ` stroke-dasharray="${Math.round(LINE_W * 0.45 * 10) / 10} ${Math.round(LINE_W * 0.4 * 10) / 10}" stroke-linecap="butt"` : segmentStyle === 'solid' ? '' : gone ? ' stroke-dasharray="1 7" stroke-linecap="round"' : auto ? ' stroke-dasharray="14 8"' : '';
-        const casingPath = (legStruct === 'elevated' ? `<path d="${run.d}" stroke="${palette.muted}" stroke-width="${rails.outer}" stroke-linecap="butt"/><path d="${run.d}" stroke="${palette.paper}" stroke-width="${rails.inner}" stroke-linecap="butt"/>` : '') + `<path d="${run.d}" stroke="${palette.paper}" stroke-width="${CASE_W}"/>`;
+        const bordered = model.line.border !== false;
+        const casingPath = (legStruct === 'elevated' ? `<path d="${run.d}" stroke="${palette.muted}" stroke-width="${rails.outer}" stroke-linecap="butt"/><path d="${run.d}" stroke="${palette.paper}" stroke-width="${rails.inner}" stroke-linecap="butt"/>` : '') + (bordered ? `<path d="${run.d}" stroke="${palette.paper}" stroke-width="${CASE_W}"/>` : '');
         const paintPath = `<path d="${run.d}" stroke="${model.line.color}" stroke-width="${LINE_W}"${dash}${gone && !segmentStyle ? ' opacity=".6"' : ''} data-line="${TM.esc(model.line.id)}"/>`;
-        if (off) { dimCasing += casingPath; dimPaint += paintPath; } else { casing += casingPath; paint += paintPath; }
+        /* where one run meets the next at a bend, the butt ends leave a notch on the outside of the corner: a round dot of the
+           line's width fills it (not within dashed / faded runs, where it would show) */
+        const solid = !dash && !gone && !auto;
+        const numbers = run.d.match(/-?\d+\.?\d*/g).map(Number), startAt = { x: numbers[0], y: numbers[1] }, endAt = { x: numbers[numbers.length - 2], y: numbers[numbers.length - 1] };
+        let joint = '', jointCase = '';
+        if (solid && lastRun && lastRun.solid && lastRun.off === off && Math.hypot(lastRun.end.x - startAt.x, lastRun.end.y - startAt.y) < 1) {
+          joint = `<circle cx="${startAt.x}" cy="${startAt.y}" r="${LINE_W / 2}" fill="${model.line.color}" stroke="none"/>`;
+          jointCase = bordered ? `<circle cx="${startAt.x}" cy="${startAt.y}" r="${CASE_W / 2}" fill="${palette.paper}" stroke="none"/>` : '';
+        }
+        lastRun = { end: endAt, solid, off };
+        if (off) { dimCasing += casingPath + jointCase; dimPaint += paintPath + joint; } else { casing += casingPath + jointCase; paint += paintPath + joint; }
         /* only a stretch between two of the line's own items can be restyled (suggested stops have no style of their own) */
         const origIndex = model.line.origIdx, own = !origIndex || (origIndex[run.i0] >= 0 && origIndex[run.i1] === origIndex[run.i0] + 1);
         if (opts.interactive && isAct && own) hit += `<path d="${run.d}" stroke="transparent" stroke-width="20" data-seg="${origIndex ? origIndex[run.i0] : run.i0}" data-line="${TM.esc(model.line.id)}"/>`;
@@ -343,6 +355,30 @@
       model.seq.forEach((n) => grow(n.x * GRID, n.y * GRID, 24));
     });
     return svg + markSvg;   // markers on top of every line
+  }
+
+  /* Stations of one place that share a name are one physical station under several records: one label is enough. The
+     first (by station order) draws it, the rest are skipped, and their code lists are folded into its code line. Used for
+     partners on one node and for the stations a shape is drawn across (crossMerges). */
+  function foldNames(scene, ids, labelSkip, mergedCodes) {
+    const { store, info } = scene;
+    if (ids.length < 2) return;
+    const stOrder = new Map([...store.stations.keys()].map((k, i) => [k, i])), clusters = [];
+    ids.forEach((id) => {
+      const cluster = clusters.find((c) => store.sameName(c[0], id));
+      if (cluster) cluster.push(id); else clusters.push([id]);
+    });
+    clusters.forEach((cluster) => {
+      if (cluster.length < 2 || cluster.some((id) => store.stations.get(id).block)) return;
+      cluster.sort((a, b) => stOrder.get(a) - stOrder.get(b));
+      const [leader, ...rest] = cluster, allCodes = [];
+      rest.forEach((id) => labelSkip.add(id));
+      cluster.forEach((id) => {
+        const memberInfo = info.get(id), own = memberInfo.codes.concat(store.members(id).filter((c2) => !memberInfo.codes.includes(c2)));
+        own.forEach((c2) => { if (!allCodes.includes(c2)) allCodes.push(c2); });
+      });
+      mergedCodes.set(leader, allCodes);
+    });
   }
 
   /* Interchange partners on one node: one shared symbol (and one label when they also share a name). */
@@ -385,26 +421,7 @@
        "interchange"-type links kept apart on purpose) — one label is enough. The first (by station order) draws it;
        the rest are skipped, and their own code lists are folded into the one label's code line. */
     const labelSkip = new Set(), mergedCodes = new Map();
-    shares.forEach((ids) => {
-      if (ids.length < 2) return;
-      const clusters = [];
-      ids.forEach((id) => {
-        const cluster = clusters.find((c) => store.sameName(c[0], id));
-        if (cluster) cluster.push(id); else clusters.push([id]);
-      });
-      clusters.forEach((cluster) => {
-        if (cluster.length < 2 || cluster.some((id) => store.stations.get(id).block)) return;
-        cluster.sort((a, b) => stOrder.get(a) - stOrder.get(b));
-        const [leader, ...rest] = cluster;
-        rest.forEach((id) => labelSkip.add(id));
-        const allCodes = [];
-        cluster.forEach((id) => {
-          const memberInfo = info.get(id), own = memberInfo.codes.concat(store.members(id).filter((c2) => !memberInfo.codes.includes(c2)));
-          own.forEach((c2) => { if (!allCodes.includes(c2)) allCodes.push(c2); });
-        });
-        mergedCodes.set(leader, allCodes);
-      });
-    });
+    shares.forEach((ids) => foldNames(scene, ids, labelSkip, mergedCodes));
     return { splitReps, labelSkip, mergedCodes };
   }
 
@@ -457,7 +474,7 @@
     if (!aggregate.lines.length) return null;
     aggregate.lp.sort((a2, b2) => a2.rank - b2.rank);
     const memberStation = store.stations.get(memberId), pick = store.pickSymbol(pickItems);
-    const kind = overrideKind || (pick && pick.sym !== 'auto' ? pick.sym : aggregate.lp.length > 1 ? 'interchange' : aggregate.term ? 'terminal' : 'station');
+    const kind = overrideKind || (pick && pick.sym !== 'auto' ? pick.sym : aggregate.lp.length > 1 ? TM.autoSymbol('interchange') : aggregate.term ? 'terminal' : TM.autoSymbol('station'));
     const showNum = overrideNum != null ? overrideNum : numShow(memberId, aggregate.numFlags);
     if (kind === 'capsule' || kind === 'stack' || kind === 'hub' || kind === 'chain') {
       let axis, items;
@@ -481,6 +498,65 @@
     return symbols.station(0, 0, { pal: palette, kind: kind === 'interchange' ? 'interchange' : kind === 'terminal' ? 'terminal' : kind === 'disc' ? 'disc' : 'station', status: memberStation.status, dir: aggregate.term, num: numbered && numLine ? numLine.num : '', fill: terminusLine ? terminusLine.color : palette.paper });
   }
 
+  /* Stations joined by an interchange link across different nodes, all drawn as capsule / stacked / hub: one shape
+     runs through every one of them (stationInfo.merge = { reps, kind, leader }), drawn by the first; the links between
+     them are not drawn, the shape is the link. A name shared by all of them is labelled once. */
+  const MERGING = new Set(['capsule', 'stack', 'hub', 'pill']);
+  function crossMerges(scene) {
+    const { store, info, itemsByRep, positions, labelSkip, mergedCodes, absorbedReps } = scene;
+    const parent = new Map(), find = (k) => { while (parent.get(k) !== k) { parent.set(k, parent.get(parent.get(k))); k = parent.get(k); } return k; };
+    store.splitLinks().forEach((c) => {
+      const a = store.rep(c.a), b = store.rep(c.b), pa = positions.get(a), pb = positions.get(b);
+      if (a === b || !info.has(a) || !info.has(b) || !pa || !pb || Math.hypot(pa.x - pb.x, pa.y - pb.y) < 1 || absorbedReps.has(a) || absorbedReps.has(b)) return;
+      [a, b].forEach((k) => { if (!parent.has(k)) parent.set(k, k); });
+      parent.set(find(a), find(b));
+    });
+    const stOrder = new Map([...store.stations.keys()].map((k, i) => [k, i])), groups = new Map();
+    parent.forEach((_, k) => { const root = find(k); (groups.get(root) || groups.set(root, []).get(root)).push(k); });
+    groups.forEach((reps) => {
+      reps.sort((x, y) => stOrder.get(x) - stOrder.get(y));
+      const kinds = reps.map((r) => { const held = info.get(r), pick = store.pickSymbol(held.share ? held.share.pick : itemsByRep.get(r) || []); return pick ? pick.sym : null; });
+      if (!MERGING.has(kinds[0]) || kinds.some((k) => k !== kinds[0]) || reps.some((r) => store.stations.get(r).block)) return;
+      const group = { reps, kind: kinds[0], leader: reps[0] };
+      reps.forEach((r) => { info.get(r).merge = group; });
+      foldNames(scene, reps, labelSkip, mergedCodes);
+    });
+  }
+
+  /* the shape across the nodes: items stand where their lines run, put in order along the shape */
+  function mergedSymbol(scene, stationInfo, id, x, y, station) {
+    const { symbols, palette, numShow, info, positions } = scene, group = stationInfo.merge;
+    if (group.leader !== id) return { kind: group.kind, showNum: false, g: '', extra: 6, big: true, picked: group.kind };
+    if (group.kind === 'pill') {   // one long pill, a band for each line, in the order the nodes stand left to right
+      const seenPill = new Set(), entries = [];
+      group.reps.forEach((r) => { const held = info.get(r).share || info.get(r); if (seenPill.has(held)) return; seenPill.add(held); held.lp.forEach((q) => entries.push(q)); });
+      /* along the line between its stations, like a hub, the way up so the text never turns upside down */
+      let far = [entries[0], entries[0]], best = -1;
+      entries.forEach((p) => entries.forEach((q) => { const d = Math.hypot(p.p.x - q.p.x, p.p.y - q.p.y); if (d > best) { best = d; far = [p, q]; } }));
+      let ux = far[1].p.x - far[0].p.x, uy = far[1].p.y - far[0].p.y;
+      if (ux < 0 || (ux === 0 && uy < 0)) { ux = -ux; uy = -uy; }
+      entries.sort((p, q) => (p.p.x * ux + p.p.y * uy) - (q.p.x * ux + q.p.y * uy) || p.rank - q.rank);
+      const showNumber = numShow(id, [...seenPill].flatMap((h) => h.numFlags)), angle = best > 0 ? Math.atan2(uy, ux) * 180 / Math.PI : 0;
+      const centre = { x: group.reps.reduce((t, r) => t + positions.get(r).x, 0) / group.reps.length, y: group.reps.reduce((t, r) => t + positions.get(r).y, 0) / group.reps.length };
+      const codes = entries.slice(0, 7).map((q) => ({ text: showNumber ? q.num || '' : '', color: q.line.color }));
+      const width = codes.reduce((t, c) => t + Math.max(26, symbols.textWidth(c.text, 11) + 13), 0);
+      return { kind: 'pill', showNum: showNumber, g: `<g transform="rotate(${TM.round2dp(angle)} ${TM.round2dp(centre.x)} ${TM.round2dp(centre.y)})">${symbols.station(centre.x, centre.y, { pal: palette, kind: 'pill', status: station.status, codes })}</g>`, extra: Math.max(0, width / 2 - 10 + Math.hypot(centre.x - x, centre.y - y)), big: true, picked: 'pill' };
+    }
+    const seen = new Set(), items = [], flags = [];
+    group.reps.forEach((r) => {
+      const held = info.get(r).share || info.get(r);
+      if (seen.has(held)) return;
+      seen.add(held); flags.push(...held.numFlags);
+      held.lp.forEach((q) => items.push({ color: q.line.color, num: q.num, rank: q.rank, dx: q.p.x - x, dy: q.p.y - y }));
+    });
+    let far = [items[0], items[0]], best = -1;
+    items.forEach((p) => items.forEach((q) => { const d = Math.hypot(p.dx - q.dx, p.dy - q.dy); if (d > best) { best = d; far = [p, q]; } }));
+    const ux = far[1].dx - far[0].dx, uy = far[1].dy - far[0].dy;
+    items.sort((p, q) => (p.dx * ux + p.dy * uy) - (q.dx * ux + q.dy * uy) || p.rank - q.rank);
+    const showNum = numShow(id, flags), multi = symbols.multi(x, y, { pal: palette, style: group.kind, items, showNum, axis: { x: 1, y: 0 }, status: station.status, spread: true });
+    return { kind: group.kind, showNum, g: multi.svg, extra: Math.max(0, multi.extent - 10), big: true, picked: group.kind };
+  }
+
   /* Links between stations: interchange necks, connecting / unofficial walkways (one per pair of complexes), legacy item links. */
   function drawLinks(scene) {
     const { opts, store, geo, symbols, linkK, palette, info, isDimmed, positions, blockOfMember } = scene;
@@ -488,12 +564,13 @@
     const linkDone = new Set();
     const drawLink = (leadA, leadB, kind, rawA, rawB) => {
       const stationInfo = info.get(leadA), other = info.get(leadB), key = leadA < leadB ? leadA + '|' + leadB : leadB + '|' + leadA;
-      if (!stationInfo || !other || leadA === leadB || linkDone.has(key) || (stationInfo.share && stationInfo.share === other.share)) return;
+      if (!stationInfo || !other || leadA === leadB || linkDone.has(key) || (stationInfo.share && stationInfo.share === other.share) || (stationInfo.merge && stationInfo.merge === other.merge)) return;
       linkDone.add(key);
       const pointA = positions.get(leadA), pointB = positions.get(leadB), nodeA = store.nodeOf(leadA), nodeB = store.nodeOf(leadB);
       const bends = rawA && rawB ? store.connBends(rawA, rawB) : [];
       const route = geo.linkRoute(pointA, pointB, nodeA, nodeB, undefined, bends);                  // from circle centre to circle centre, bent to the grid
       (stationInfo.share || stationInfo).dirs.push(route.a); (other.share || other).dirs.push(route.b);   // keep labels clear of the link
+      if (kind === 'neck') [[stationInfo, route.a], [other, route.b]].forEach(([end, heading]) => { const held = end.share || end; (held.necks = held.necks || []).push(heading); });   // a linked symbol opens towards it
       const connAttr = rawA && rawB ? ` data-conn="${TM.esc(rawA)}|${TM.esc(rawB)}"` : '';
       const look = (rawA && rawB && store.connOf(rawA, rawB)) || {};
       let svgLink;
@@ -565,7 +642,7 @@
       });
     }
     /* A capsule / stack's long edge always faces the block's centre — so its long axis runs tangential to the
-       ring or perimeter (crosswise to the radius, like a chord) here, exactly as a rapidkl bar's bundles sit
+       ring or perimeter (crosswise to the radius, like a chord) here, exactly as a pill-shaped block's bundles sit
        alongside the bar rather than end-on into it. Which of the two tangent directions counts as "positive"
        does not actually matter: bundleDirs/lineDirs below always sort each dot by its own real line's position
        projected onto this axis, so the arrangement lands the same physical dot next to its own real line
@@ -607,7 +684,7 @@
     const linked = stationInfo.share ? stationInfo.share.reps.some((r) => splitReps.has(r)) : splitReps.has(id);
     /* Auto: interchange partners standing on one node share one symbol, which is a ring like any other interchange;
        linked discs are for partners on nodes of their own, joined by a neck */
-    const kind = pick && pick.sym !== 'auto' ? pick.sym : linked && !stationInfo.share ? 'chain' : symbolInfo.lines.length > 1 ? 'interchange' : symbolInfo.term ? 'terminal' : 'station';
+    const kind = pick && pick.sym !== 'auto' ? pick.sym : linked && !stationInfo.share ? 'chain' : symbolInfo.lines.length > 1 ? TM.autoSymbol('interchange') : symbolInfo.term ? 'terminal' : TM.autoSymbol('station');
     const showNum = numShow(id, symbolInfo.numFlags);
     let markup, extra = 0, big = kind === 'interchange';
     if (kind === 'capsule' || kind === 'stack' || kind === 'hub' || kind === 'chain') {
@@ -624,7 +701,7 @@
         else { items.forEach((it) => { it.dx = null; }); chainGap = chainTouch(items, showNum); }
       }
       if (kind !== 'chain') items.forEach((it) => { it.dx = null; });
-      const multiSymbol = symbols.multi(x, y, { pal: palette, style: kind, items, showNum, axis, status: station.status, gap: chainGap });
+      const multiSymbol = symbols.multi(x, y, { pal: palette, style: kind, items, showNum, axis, status: station.status, gap: chainGap, necks: symbolInfo.necks, neckWidth: 5.5 * scene.linkK / scene.symK });
       markup = multiSymbol.svg; extra = Math.max(0, multiSymbol.extent - 10); big = true;
     } else {
       const first = symbolInfo.lp[0], numbered = showNum && kind !== 'interchange' && first && first.num;
@@ -688,7 +765,7 @@
         : mergedCodes.get(id) || stationInfo.codes.concat(store.members(id).filter((c) => !stationInfo.codes.includes(c)));
       const codeOverride = store.codeLabels[id] || {}, codeDefault = (codes.length ? codes : [station.id]).join(' · ');   // this user's view settings, not station data
       stationInfo.codeInfo = { def: codeDefault, show: codeOverride.show, text: codeOverride.text || '', shown: codeOverride.show === true ? true : codeOverride.show === false ? false : !!opts.showCodes };
-      const dimmedLabel = isDimmed(id);
+      const dimmedLabel = symbolGroup(stationInfo, id).every(isDimmed);
       const rows = station.block && station.block.label ? [{ text: station.block.label, fs: stationInfo.labelSize, bold: true }].concat(stationInfo.codeInfo.shown ? [{ text: codeOverride.text || codeDefault, fs: Math.max(7, Math.round(stationInfo.labelSize * 0.73 * 10) / 10), muted: true }] : [])
         : labelRows(station, opts.langs, stationInfo.codeInfo.shown, stationInfo.labelSize, codeOverride.text || codeDefault);
       /* a scaled symbol pushes its label out by as much as it grew (its own clearance + extent, both scaled) */
@@ -703,6 +780,9 @@
     return '';
   }
 
+  /* the stations one drawn symbol stands for: partners on one node, the stations a shape runs across, or just itself */
+  const symbolGroup = (stationInfo, id) => (stationInfo.share ? stationInfo.share.reps : stationInfo.merge ? stationInfo.merge.reps : [id]);
+
   /* Every station's symbol and name label. */
   function drawStations(scene) {
     const { opts, store, symK, palette, hiddenStatus, grow, info, isDimmed, positions, absorbedReps } = scene;
@@ -714,11 +794,12 @@
       /* Hide stations whose Display toggle is off (under construction / provisional / abandoned / demolished) — but only when
          EVERY station sharing this node/complex is in a hidden status; if even one member is shown, the shared symbol still needs to be drawn. */
       const hideStatus = (raw) => hiddenStatus(store.stations.get(raw));
-      if ((stationInfo.share ? stationInfo.share.reps : [id]).every(hideStatus)) return;
+      if (symbolGroup(stationInfo, id).every(hideStatus)) return;
       let symbol = symbolInfo.sym;
+      if (!symbol && stationInfo.merge) symbol = mergedSymbol(scene, stationInfo, id, x, y, station);
       if (!symbol) symbol = blockSymbol(scene, stationInfo, symbolInfo, id, x, y);
       if (!symbol) symbol = plainSymbol(scene, stationInfo, symbolInfo, id, x, y, station, leader);
-      const dimmed = stationInfo.share ? stationInfo.share.reps.every(isDimmed) : isDimmed(id);
+      const dimmed = symbolGroup(stationInfo, id).every(isDimmed);   // lit when any station the symbol stands for is
       /* a dashed halo marks a stop that is only suggested on a line drawn here */
       const isSug = symbol.kind !== 'block' && (stationInfo.share ? stationInfo.share.reps : [id]).some((r) => info.get(r) && info.get(r).sug);
       const halo = isSug ? `<circle cx="${x}" cy="${y}" r="${16 + symbol.extra}" fill="none" stroke="${palette.fantasy}" stroke-width="2" stroke-dasharray="4 3" pointer-events="none"/>` : '';
@@ -881,6 +962,7 @@
     info.forEach((stationInfo, id) => positions.set(id, { x: stationInfo.px / stationInfo.n, y: stationInfo.py / stationInfo.n }));
     Object.assign(scene, shareSymbols(scene));
     Object.assign(scene, blockIndex(scene));
+    crossMerges(scene);
     const svgLinks = drawLinks(scene);   // before the stations: a link pushes its direction into the labels' placement
     const { svgStations, svgLabels } = drawStations(scene);
     const svgBadges = drawBadges(scene), svgBeyond = drawBeyond(scene), overlay = editOverlay(scene), svgAnnotations = drawAnnotations(scene);

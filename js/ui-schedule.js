@@ -34,7 +34,8 @@
     const title = line ? `Timetable · ${esc(line.code)} all-stops trains` : `Timetable · ${esc(service.name)}`;
 
     const stationSel = (value, attr) => `<select class="input" ${attr} style="height:30px;flex:1;min-width:0">${stops.map((id) => `<option value="${esc(id)}" ${id === value ? 'selected' : ''}>${esc(name(id))} (${esc(id)})</option>`).join('')}</select>`;
-    const timeIn = (value, attr, label) => `<input class="input" type="time" ${attr} value="${esc(value || '')}" style="height:30px;width:112px" aria-label="${label}">`;
+    /* typed as text, so a time past midnight can be entered too: 24:30 is half past midnight, on the next day */
+    const timeIn = (value, attr, label) => `<input class="input tt-clock" type="text" inputmode="numeric" autocomplete="off" ${attr} value="${esc(value || '')}" placeholder="HH:MM" style="height:30px;width:84px;text-align:center" aria-label="${label}">`;
 
     /* ---------- fixed timetable: stations down, one column per train ---------- */
     /* where a train is at a stop when nothing is typed there: the nearest earlier typed time plus the line's own minutes */
@@ -85,7 +86,7 @@
         `<div class="seg" style="margin-bottom:8px"><button type="button" data-kind="${i}:freq" class="${timetable ? '' : 'on'}">First / last train &amp; frequency</button><button type="button" data-kind="${i}:times" class="${timetable ? 'on' : ''}">Fixed timetable</button></div>` +
         (timetable
           ? gridHtml(p, i)
-          : `<div class="row wrap" style="gap:12px;margin-bottom:8px"><label class="row" style="gap:6px"><span class="hint">First train</span>${timeIn(p.first, 'data-f="first"', 'First train')}</label><label class="row" style="gap:6px"><span class="hint">Last train</span>${timeIn(p.last, 'data-f="last"', 'Last train')}</label><span class="hint">from the first stop of that way</span></div>` +
+          : `<div class="row wrap" style="gap:12px;margin-bottom:8px"><label class="row" style="gap:6px"><span class="hint">First train</span>${timeIn(p.first, 'data-f="first"', 'First train')}</label><label class="row" style="gap:6px"><span class="hint">Last train</span>${timeIn(p.last, 'data-f="last"', 'Last train')}</label><span class="hint">from the first stop of that way · after midnight keep counting: 24:30 is 00:30 the next day</span></div>` +
             `<div class="lbl" style="margin:4px 0 6px">Trains also start at <span style="font-weight:500">(so a stop part-way gets its first train earlier)</span></div>` +
             p.starts.map((st, j) => `<div class="row tt-start" style="gap:6px;margin-bottom:4px">${stationSel(st.at, 'data-sf="at"')}${timeIn(st.time, 'data-sf="time"', 'First train from there')}<button type="button" class="btn sm ghost icon-btn" data-rmstart="${i}:${j}" style="width:26px;padding:0">${TM.icon('x')}</button></div>`).join('') +
             `<button type="button" class="btn sm ghost" data-addstart="${i}">${TM.icon('plus')} Start point</button>` +
@@ -156,7 +157,11 @@
       plansBox.querySelectorAll('.bad').forEach((c) => c.classList.remove('bad'));
       for (let i = 0; i < work.plans.length; i++) {
         const p = work.plans[i];
-        if (!p.trains) continue;
+        if (!p.trains) {   // a frequency plan: every time typed must be one
+          const clocks = [...plansBox.querySelectorAll(`.tt-plan[data-plan="${i}"] .tt-clock`)], wrong = clocks.find((c) => c.value.trim() && sched.parseClock(c.value) === null);
+          if (wrong) { wrong.classList.add('bad'); return `${p.name || 'Plan ' + (i + 1)}: “${wrong.value}” is not a time (use HH:MM; up to 47:59 for after midnight).`; }
+          continue;
+        }
         const { rows } = wayOf(p.dir), label = `${p.name || 'Plan ' + (i + 1)}, train`;
         for (let j = 0; j < p.trains.length; j++) {
           const t = p.trains[j], cell = (id) => plansBox.querySelector(`.tt-plan[data-plan="${i}"] .tt-cell[data-t="${j}"][data-s="${CSS.escape(id)}"]`);
@@ -214,6 +219,12 @@
       const el = e.target, box = el.closest('.tt-plan');
       if (!box) return;
       const p = work.plans[+box.dataset.plan];
+      if (el.classList.contains('tt-clock')) {
+        const clock = sched.parseClock(el.value);
+        el.classList.toggle('bad', clock === null);
+        if (clock !== null) el.value = clock;
+        return;
+      }
       if (el.classList.contains('tt-cell')) {
         const clock = sched.parseClock(el.value);
         el.classList.toggle('bad', clock === null);

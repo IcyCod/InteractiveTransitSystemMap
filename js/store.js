@@ -83,7 +83,7 @@
     .filter((c) => c.to && c.to !== 'undefined');
 
   /* A station (or its whole interchange group) drawn as one mega-station "block": every member gets its own small dot,
-     freely placed inside the shape; a connecting station can be merged in too. style: rapidkl (a filled bar) | shape
+     freely placed inside the shape; a connecting station can be merged in too. style: pill_shaped (a filled bar; once "rapidkl") | shape
      (an outlined circle/square). members: raw station id -> {dx,dy} px offset from the block's centre. */
   const normT = (v) => { const number = +v; if (!isFinite(number)) return null; const fraction = number % 1; return fraction < 0 ? fraction + 1 : fraction; };
   function normBlock(block) {
@@ -128,7 +128,7 @@
     if (isFinite(rawLp.size) && rawLp.size > 0) labelPos.size = Math.min(40, Math.max(6, Math.round(rawLp.size)));
     if (TM.normAngle(rawLp.rot)) labelPos.rot = TM.normAngle(rawLp.rot);
     return {
-      style: block.style === 'shape' ? 'shape' : 'rapidkl',
+      style: block.style === 'shape' ? 'shape' : 'pill_shaped',   // an older "rapidkl" is the pill-shaped one
       shape: block.shape === 'square' ? 'square' : 'circle',
       orientation: block.orientation === 'vertical' ? 'vertical' : 'horizontal',
       size: isFinite(block.size) && block.size > 0 ? Math.round(block.size) : null,
@@ -284,6 +284,7 @@
       color: line.color || '#7c3aed', mode: line.mode || 'other', status: legacyStatus(line.status) || 'fantasy',
       author: line.author || '', style: line.style === 'orthogonal' ? 'orthogonal' : 'octilinear',
       loop: !!line.loop, default: !!line.default, created: line.created || null,
+      border: line.border !== false,                                             // the outline (casing) round the drawn line: on unless switched off
       inOut: !!line.inOut,                                                       // a traveller may enter and leave at the same station of this line (journey planner)
       circle: normCircle(line),                                                  // a loop drawn as one circle: { x, y, r } in grid units (TM.geo.circleOf)
       loopDir: line.loopDir === 'clockwise' || line.loopDir === 'anticlockwise' ? line.loopDir : null,
@@ -360,6 +361,10 @@
   store.rootId = (l) => (typeof l === 'string' ? l.split('~')[0] : l ? l.rootId || l.id : null);
   store.rootLine = (l) => store.lines.get(store.rootId(l)) || null;
   /* every track line — each line followed by its branches — of the given line ids (default: all lines) */
+  /* A line (or branch) that is not running as such — planned, under construction, terminated…; a fantasy line is its own thing. */
+  store.nonOperational = (line) => { const root = store.rootLine(line) || line; return !!root && root.status !== 'operational' && root.status !== 'fantasy'; };
+  /* every station of those lines */
+  store.nonOpStations = () => store._nonOpSt || (store._nonOpSt = new Set(store.trackLines().filter(store.nonOperational).flatMap((l) => l.path.filter((it) => it.s).map((it) => it.s))));
   store.trackLines = (ids) => (ids ? ids.map((id) => store.lines.get(id)) : [...store.lines.values()]).filter(Boolean).flatMap((l) => [l, ...store.branchesOf(l)]);
 
   const compactItem = (item) => {
@@ -466,7 +471,7 @@
     if (TM.history) TM.history.reset();
   };
 
-  store._invalidate = () => { store._nodes = null; store._groups = null; store._conns = null; store._complex = null; store._sugg = null; store._track = null; store._svcRoutes = null; };
+  store._invalidate = () => { store._nodes = null; store._groups = null; store._conns = null; store._complex = null; store._sugg = null; store._track = null; store._svcRoutes = null; store._nonOpSt = null; };
 
   store.save = function (silent) {
     store._invalidate();
@@ -565,6 +570,7 @@
     };
     if (line.loop) result.loop = true;
     if (line.inOut) result.inOut = true;
+    if (line.border === false) result.border = false;
     if (line.loop && line.loopDir) result.loopDir = line.loopDir;
     if (line.loop && line.loopNames) result.loopNames = line.loopNames;
     if (line.loop && line.traffic) result.traffic = line.traffic;

@@ -6,7 +6,7 @@
   const $ = (id) => document.getElementById(id);
 
   /* stations hidden by default here — a journey planner is for real trips, not for suggestions still being worked out */
-  planUI.disp = { ...TM.statusFlagsFrom(() => false), modes: null, avoidLines: new Set(), services: {} };   // services: this viewer's own on / off per service (TM.route.serviceOn)
+  planUI.disp = { ...TM.statusFlagsFrom(() => false), nonOperational: false, modes: null, avoidLines: new Set(), services: {} };   // services: this viewer's own on / off per service (TM.route.serviceOn)
   planUI.flags = () => planUI.disp;
   /* when to leave: 'any' (no time — average waits, like a map with no timetables), 'now', or 'at' a chosen moment (ms) */
   planUI.when = { mode: 'any', at: null };
@@ -54,13 +54,14 @@
   planUI.renderOpts = () => Object.assign({
     theme: document.documentElement.dataset.theme || 'light',
     langs: TM.state.langs.length ? TM.state.langs : ['en'],
-    lineIds: [...store.lines.keys()],
+    lineIds: [...store.lines.keys()].filter((id) => planUI.disp.nonOperational || !store.nonOperational(store.lines.get(id))),
+    shownStations: planUI.disp.nonOperational ? store.nonOpStations() : null,
     activeLineId: null,
     showCodes: true,
     numberMode: (TM.maps.current && TM.maps.current.numberMode) || 'code',          // the map's own default, else codes
     numModeOverride: !!(TM.maps.current && TM.maps.current.numModeOverride),
     labelSize: 13, lineWidth: 8, symbolScale: 1, connWidth: 7,
-    hotspots: false, showSuggested: false, showFantasy: false,
+    hotspots: false, showSuggested: false, showFantasy: false, trimHidden: true,   // like the editor, a line stops at its last shown station
     ...TM.statusFlagsFrom((t) => planUI.disp[t.opt]),
     interactive: true,   // only so data-sid attributes are emitted for click-to-pick; nothing is draggable here
   }, planUI.routeDimOpts());
@@ -160,6 +161,7 @@
     html += `<div class="sec"><div class="sec-h"><h3>Display</h3></div><div style="display:grid;gap:9px">` +
       TM.STATUS_TOGGLES.map((t) => [t.opt, t.label])
         .map(([k, t]) => `<label class="check"><input type="checkbox" data-opt="${k}" ${planUI.disp[k] ? 'checked' : ''}> ${t}</label>`).join('') +
+      `<label class="check"><input type="checkbox" data-opt="nonOperational" ${planUI.disp.nonOperational ? 'checked' : ''}> Non-operational lines <span class="hint">(planned, under construction, terminated… — drawn and used in routes, with their stations)</span></label>` +
       `</div><p class="hint" style="margin:8px 0 0">Fantasy stations are never shown or usable here — this planner is for real, on-the-map trips.</p></div>`;
     const modes = planUI.disp.modes || new Set(Object.keys(TM.MODES));
     html += `<div class="sec"><div class="sec-h"><h3>Transportation</h3></div><p class="hint" style="margin-top:0">Untick a type to avoid it, or leave just the ones you want.</p><div style="display:grid;gap:9px">` +
@@ -370,7 +372,21 @@
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeFare(); });
   function wireRight() {
     const panel = $('right');
-    panel.addEventListener('change', (e) => { if (e.target.id === 'whenAt' && e.target.value) { planUI.when = { mode: 'at', at: new Date(e.target.value).getTime() }; runSearch(); } });
+    /* a typed date / time fires on every digit: wait until the typing stops (or the box is left) before searching — the search
+       redraws the panel, which would otherwise cut the typing short */
+    let whenTimer = 0;
+    const applyWhen = (input) => {
+      clearTimeout(whenTimer); whenTimer = 0;
+      const at = new Date(input.value).getTime();
+      if (!input.value || !isFinite(at)) return;   // half typed: nothing to search for yet
+      const focused = document.activeElement === input;
+      planUI.when = { mode: 'at', at };
+      runSearch();
+      if (focused) { const fresh = $('whenAt'); if (fresh) fresh.focus(); }
+    };
+    const soon = (e) => { if (e.target.id === 'whenAt') { clearTimeout(whenTimer); const input = e.target; whenTimer = setTimeout(() => applyWhen(input), 1200); } };
+    panel.addEventListener('input', soon); panel.addEventListener('change', soon);
+    panel.addEventListener('focusout', (e) => { if (e.target.id === 'whenAt' && whenTimer) applyWhen(e.target); });
     panel.addEventListener('click', (e) => {
       let button;
       if ((button = e.target.closest('[data-pick]'))) { setPicking(planUI.state.picking === button.dataset.pick ? null : button.dataset.pick); return; }
@@ -442,7 +458,7 @@
     host.innerHTML = `<div class="dd"><button class="brand-btn" aria-haspopup="listbox" title="Switch map"></button><div class="dd-pop map-pop" hidden></div></div>`;
     const root = host.firstElementChild, button = root.querySelector('.brand-btn'), popup = root.querySelector('.map-pop');
     let open = false;
-    const logo = (m) => { const logoSrc = maps.logoSrc(m); return logoSrc ? `<img class="logo" alt="" src="${TM.esc(logoSrc)}">` : `<span class="logo" style="display:grid;place-items:center;background:var(--accent-2);font-weight:800;color:var(--accent)">${TM.esc((maps.name(m) || '?')[0])}</span>`; };
+    const logo = maps.logoHTML;
     const label = () => { const currentMap = maps.current; button.innerHTML = `${logo(currentMap)}<span class="bt"><span class="t">${TM.esc(maps.name(currentMap))}</span><small>${TM.esc([currentMap.area, currentMap.country].filter(Boolean).join(', ') || 'Journey planner')}</small></span>${TM.icon('chevron', 'chev')}`; button.setAttribute('aria-label', `Map: ${maps.name(currentMap)}. Switch map`); };
     const build = () => {
       const groups = [['Published maps', maps.shipped], ['My maps', maps.user]].map(([t, l]) => [t, l.filter((m) => m.navigator)]).filter(([, l]) => l.length);   // only maps offered here (map.json "navigator")

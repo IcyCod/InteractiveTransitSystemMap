@@ -100,7 +100,7 @@
       <div id="sd-existing" hidden><p class="hint" style="margin-top:0">Search by any language or code. The station will be ${suggesting ? 'suggested for' : 'added to'} <b>${TM.esc(line ? line.code : '')}</b>${suggesting ? '' : ' at its own node'}.</p><div id="sd-search"></div></div>
       <form id="sd-form" autocomplete="off">
         <div class="grid2">
-          ${TM.LANGS.map((l) => `<div class="field"><label>${l.label}${l.key === 'en' ? ' *' : ''}</label><input class="input" name="n-${l.key}" value="${TM.esc(values.names[l.key] || '')}" placeholder="${l.key === 'en' ? 'e.g. Bukit Jalil Central' : ''}"></div>`).join('')}
+          ${TM.LANGS.map((l) => `<div class="field"><label>${l.label}${l.key === 'en' ? ' *' : ''}</label><input class="input" name="n-${l.key}" value="${TM.esc(values.names[l.key] || '')}" placeholder="${l.key === 'en' ? 'e.g. Greenwood' : ''}"></div>`).join('')}
         </div>
         <div class="grid2">
           <div class="field"><label>Latitude</label><input class="input" name="lat" inputmode="decimal" value="${latLng.lat.toFixed(6)}"></div>
@@ -280,13 +280,14 @@
           <div class="grid2" style="margin-top:8px"><div class="field" style="margin:0"><label>Journey planner names its ways round</label><select class="input" name="loopnames">${options(TM.LOOP_NAMES, line.loopNames || 'cw')}</select></div>
           <div class="field" style="margin:0"><label>Trains keep to the</label><select class="input" name="traffic">${options(TM.TRAFFIC, line.traffic || 'left')}</select></div></div>
           <p class="hint" style="margin:4px 0 0">Left-hand running: the outer loop runs clockwise; right-hand: anticlockwise.</p></div>
+        <label class="check" style="margin-top:6px"><input type="checkbox" name="border" ${line.border === false ? '' : 'checked'}> Border round the drawn line <span class="hint">(the outline that keeps it apart from what it crosses — untick for a bare line)</span></label>
         <label class="check" style="margin-top:6px"><input type="checkbox" name="inout" ${line.inOut ? 'checked' : ''}> Same-station in-out (enter and exit at one station without riding anywhere)</label>
         <p class="hint" id="ld-err" style="color:var(--danger)"></p></form>`,
       buttons: [{ label: 'Cancel', cls: 'ghost' }, { label: edit ? 'Save' : 'Create line', cls: 'primary', onClick: (dialogApi) => {
         const form = $(dialogApi.body, '#ld'), names = {};
         TM.LANGS.forEach((g) => { names[g.key] = form['n-' + g.key].value.trim(); });
         if (!Object.values(names).some(Boolean)) { $(dialogApi.body, '#ld-err').textContent = 'Give the line a name.'; return false; }
-        const fields = { names, code: form.code.value.trim(), color: form.color.value, mode: form.mode.value, style: form.style.value, status: form.status.value, loop: form.loop.checked, loopDir: form.loop.checked ? form.loopdir.value || null : null, loopNames: form.loop.checked && form.loopnames.value !== 'cw' ? form.loopnames.value : null, traffic: form.loop.checked && form.traffic.value === 'right' ? 'right' : null, inOut: form.inout.checked, image: picture, lookFor: form.lookfor.value === 'towards' ? null : form.lookfor.value };
+        const fields = { names, code: form.code.value.trim(), color: form.color.value, mode: form.mode.value, style: form.style.value, status: form.status.value, loop: form.loop.checked, loopDir: form.loop.checked ? form.loopdir.value || null : null, loopNames: form.loop.checked && form.loopnames.value !== 'cw' ? form.loopnames.value : null, traffic: form.loop.checked && form.traffic.value === 'right' ? 'right' : null, inOut: form.inout.checked, border: form.border.checked, image: picture, lookFor: form.lookfor.value === 'towards' ? null : form.lookfor.value };
         if (edit) { Object.assign(edit, fields, { code: (fields.code || edit.code).toUpperCase() }); store.save(); TM.toast('Line updated'); }
         else { const createdLine = actions.newLine(fields); TM.toast(`${createdLine.code} created — pick the Station tool and click a node`); }
       } }],

@@ -327,7 +327,7 @@
       const conns = store.connectionsOf(leadId).filter((r) => r.type !== 'platform');
       const nMembers = store.blockGroups([...store.complexMembers(leadId), ...(block.merged || []).filter((m) => store.stations.has(m))], block.bundles).length, defSize = Math.max(34, 15 * nMembers);
       html += `<p class="hint" style="margin-top:0">Replaces the usual symbol above. Drag a dot along the ring to place that station, drag the block itself with the Select tool.</p>` +
-        `<div class="seg" id="blkStyleSeg"><button data-blkstyle="rapidkl" class="${block.style !== 'shape' ? 'on' : ''}">RapidKL bar</button><button data-blkstyle="shape" class="${block.style === 'shape' ? 'on' : ''}">Shape</button></div>`;
+        `<div class="seg" id="blkStyleSeg"><button data-blkstyle="pill_shaped" class="${block.style !== 'shape' ? 'on' : ''}">Pill-shaped</button><button data-blkstyle="shape" class="${block.style === 'shape' ? 'on' : ''}">Shape</button></div>`;
       if (block.style === 'shape') html += `<div class="seg" style="margin-top:6px"><button data-blkshape="circle" class="${block.shape !== 'square' ? 'on' : ''}">Circle</button><button data-blkshape="square" class="${block.shape === 'square' ? 'on' : ''}">Square</button></div>`;
       else html += `<div class="seg" style="margin-top:6px"><button data-blkorient="horizontal" class="${block.orientation !== 'vertical' ? 'on' : ''}">Horizontal</button><button data-blkorient="vertical" class="${block.orientation === 'vertical' ? 'on' : ''}">Vertical</button></div>`;
       html += `<div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">Size</span><div class="row"><input type="range" min="24" max="160" value="${block.size || defSize}" id="blkSizeR" style="width:110px"><b id="blkSizeVal" style="width:30px;text-align:right">${block.size || defSize}</b></div></div>` +
@@ -433,7 +433,7 @@
     if (!selection || selection.type !== 'station' || !store.stations.get(selection.id)) {
       return `<div class="sec"><div class="empty">${TM.icon('cursor').replace('<svg', '<svg style="width:28px;height:28px;opacity:.5"')}<p>Select a station to see its details, change its symbol or label.</p></div>
         <dl class="kv" style="margin-top:8px"><dt>V</dt><dd>Select / move</dd><dt>S</dt><dd>Station tool</dd><dt>B</dt><dd>Add bend to route</dd><dt>I</dt><dd>Insert before / after</dd><dt>D</dt><dd>Change line style</dd><dt>A</dt><dd>Arc / circle</dd><dt>E</dt><dd>Erase from line</dd><dt>P</dt><dd>Draw under the map</dd><dt>G</dt><dd>Toggle node grid</dd><dt>F</dt><dd>Fit all</dd><dt>Drag</dt><dd>Pan · Scroll to zoom</dd></dl>
-        <div class="empty" style="margin-top:14px">${TM.icon('info').replace('<svg', '<svg style="width:28px;height:28px;opacity:.5"')}<p><b>Transit Map Tool</b> — a tool for transit  You can duplicate a map or line to edit yourself, and submit your edits at https://github.com/IcyCod/Transit-Map .</p></div></div>`;
+        <div class="empty" style="margin-top:14px">${TM.icon('info').replace('<svg', '<svg style="width:28px;height:28px;opacity:.5"')}<p><b>Transit Map Tool</b> — a tool for transit<br>You can duplicate a map or line to edit yourself, and submit your edits at https://github.com/IcyCod/Transit-Map .</p></div></div>`;
     }
     const station = store.stations.get(selection.id), index = actions.indexOfStation(station.id), canEdit = actions.editable() && index >= 0;
     const item = canEdit ? activeLine.path[index] : null;

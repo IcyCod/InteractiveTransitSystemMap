@@ -210,8 +210,8 @@
   };
 
   /* ---------- block (mega-station) shapes: a ring/perimeter/bar parametrised by t = 0..1 ---------- */
-  /* A point on the boundary for t. style: rapidkl | shape; shape: circle | square (shape only); orientation: horizontal |
-     vertical (rapidkl only); size = radius (circle) | half-width (square) | half-length (rapidkl), local to the block centre. */
+  /* A point on the boundary for t. style: pill_shaped | shape; shape: circle | square (shape only); orientation: horizontal |
+     vertical (pill_shaped only); size = radius (circle) | half-width (square) | half-length (pill_shaped), local to the block centre. */
   geo.blockPoint = (style, shape, orientation, size, fraction) => {
     if (style !== 'shape') {
       const offset = (fraction - 0.5) * 2 * size;

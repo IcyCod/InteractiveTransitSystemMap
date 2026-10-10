@@ -22,7 +22,7 @@
 (function (TM) {
   const sched = (TM.sched = {});
   const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-  sched.DAYS = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun', hol: 'Public holiday' };
+  sched.DAYS = { sun: 'Sun', mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', hol: 'Public holiday' };
   const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
   /* "HH:MM" → minutes after midnight (up to 47:59), or null */
@@ -90,14 +90,25 @@
 
   /* ---------- clock ---------- */
   /* an instant (ms) as a date, weekday and minute of the day in a time zone */
-  const fmtCache = new Map();
+  /* A time zone's offset from UTC is worked out once per hour and kept: the planner asks for the time of day thousands of
+     times per search, and formatting a date each time is far too slow. */
+  const fmtCache = new Map(), offsetCache = new Map();
+  const offsetAt = (ms, tz) => {
+    const key = tz + '|' + Math.floor(ms / 3600000);
+    let offset = offsetCache.get(key);
+    if (offset === undefined) {
+      let fmt = fmtCache.get(tz);
+      if (!fmt) { fmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }); fmtCache.set(tz, fmt); }
+      const p = {};
+      fmt.formatToParts(new Date(ms)).forEach((x) => { p[x.type] = x.value; });
+      offset = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - Math.floor(ms / 1000) * 1000;
+      offsetCache.set(key, offset);
+    }
+    return offset;
+  };
   sched.local = (ms, tz) => {
-    let fmt = fmtCache.get(tz);
-    if (!fmt) { fmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }); fmtCache.set(tz, fmt); }
-    const p = {};
-    fmt.formatToParts(new Date(ms)).forEach((x) => { p[x.type] = x.value; });
-    const date = `${p.year}-${p.month}-${p.day}`;
-    return { date, dow: new Date(date + 'T00:00:00Z').getUTCDay(), min: +p.hour * 60 + +p.minute + +p.second / 60 };
+    const shifted = new Date(ms + offsetAt(ms, tz));
+    return { date: shifted.toISOString().slice(0, 10), dow: shifted.getUTCDay(), min: shifted.getUTCHours() * 60 + shifted.getUTCMinutes() + shifted.getUTCSeconds() / 60 + shifted.getUTCMilliseconds() / 60000 };
   };
   const addDays = (date, n) => { const d = new Date(date + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
   const isHoliday = (date) => !!(TM.store && TM.store.calendar && TM.store.calendar.holidays.some((h) => h.date === date));

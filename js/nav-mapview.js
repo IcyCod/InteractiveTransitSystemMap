@@ -34,7 +34,9 @@
        rides and the stations it calls at or passes stay lit */
     const dimOpts = planRealMap.route ? TM.navUI.routeDimOpts() : {};
     const segs = dimOpts.activeSegs, litLines = dimOpts.activeExtra;
+    const hiddenLine = (line) => !flags.nonOperational && store.nonOperational(line);   // a non-operational line is left out unless asked for
     store.trackLines().forEach((line) => {   // lines and their branches
+      if (hiddenLine(line)) return;
       const stops = [];
       line.path.forEach((it, i) => { const station = it.s && store.stations.get(it.s); if (station && TM.route.allowed(station, flags)) stops.push({ st: station, i }); });
       const on = segs && segs.get(line.id);
@@ -53,7 +55,7 @@
     const mark = ({ n, first, last }) => `<span class="step-mark" style="background:${last ? palette.fantasy : palette.ink};color:${last ? '#fff' : palette.paper};border-color:${palette.paper}">${first ? '▶' : n}</span>`;
     const drawn = new Set();
     store.trackLines().forEach((line) => line.path.forEach((item) => {
-      if (!item.s || !store.stations.has(item.s)) return;
+      if (hiddenLine(line) || !item.s || !store.stations.has(item.s)) return;
       const leadId = store.rep(item.s), station = store.stations.get(leadId);
       if (drawn.has(leadId) || !TM.route.allowed(station, flags)) return;
       drawn.add(leadId);

@@ -3,8 +3,7 @@
   const ui = (TM.ui = TM.ui || {});
   const maps = TM.maps;
   const $ = (id) => document.getElementById(id);
-  const DEFAULT_LOGO = '<svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="var(--accent)"/><path d="M7 22h6a4 4 0 0 0 4-4v-4a4 4 0 0 1 4-4h4" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/><circle cx="7" cy="22" r="3" fill="#fff"/><circle cx="25" cy="10" r="3" fill="#fff"/></svg>';
-  const logoHTML = (m) => { const logoSrc = maps.logoSrc(m); return logoSrc ? `<img class="logo" alt="" src="${TM.esc(logoSrc)}">` : DEFAULT_LOGO; };
+  const DEFAULT_LOGO = maps.DEFAULT_LOGO, logoHTML = maps.logoHTML;
 
   /* ---------- reading a logo file: SVG as is, pictures shrunk to 128 px ---------- */
   const readLogo = (file) => new Promise((resolve, reject) => {
@@ -149,6 +148,8 @@
       <div class="field"><label>Default station display <span style="font-weight:500">(which kinds of station show when this map opens, here and in the journey planner — they can still change it)</span></label>
         <div class="grid2" id="mp-status" style="gap:6px 10px">${TM.STATUS_TOGGLES.map((t) => `<label class="row" style="gap:8px;justify-content:space-between"><span>${t.label}</span><select class="input" data-status="${t.opt}" style="height:30px;width:112px"><option value="">App default</option><option value="1">Shown</option><option value="0">Hidden</option></select></label>`).join('')}</div>
         <button type="button" class="btn sm" id="mp-statusnow" style="margin-top:6px">Use my current Display settings</button></div>
+      <div class="field"><label>Default symbols <span style="font-weight:500">(what a station or interchange left on “Auto” is drawn as in this map; a symbol chosen for a station still wins)</span></label>
+        <div class="grid2">${[['station', 'Station'], ['interchange', 'Interchange']].map(([k, t]) => `<label class="row" style="gap:8px;justify-content:space-between"><span>${t}</span><select class="input" data-auto="${k}" style="height:30px;width:130px">${TM.AUTO_SYMBOL_KINDS.map((s) => `<option value="${s}">${TM.esc(TM.SYMBOLS[s].short)}${s === k ? ' (usual)' : ''}</option>`).join('')}</select></label>`).join('')}</div></div>
       <label class="check" style="margin:2px 0 12px"><input type="checkbox" name="navigator" ${(edit ? edit.navigator : (src0 ? src0.navigator : true)) !== false ? 'checked' : ''}> Show in the journey planner</label>
       <div class="field"><label>Logo <span style="font-weight:500">(SVG or PNG, shown in the top bar)</span></label>
         <div class="row" style="gap:10px"><span id="mp-logo" class="logo-prev"></span><label class="btn sm" style="cursor:pointer">${TM.icon('image')} Choose image…<input type="file" id="mp-file" accept="image/svg+xml,image/png,image/jpeg,image/webp,image/gif" hidden></label><button type="button" class="btn sm ghost" id="mp-nologo">Remove</button></div></div>
@@ -170,12 +171,12 @@
     const keepNames = () => root.querySelectorAll('#mp-names [name^="n-"]').forEach((i) => { state.names[i.name.slice(2)] = i.value; });
     const drawNames = () => {
       keepNames();
-      query('#mp-names').innerHTML = allLangs().map((l) => `<div class="field"><label>Name · ${TM.esc(l.label || l.key)}${l.key === 'en' ? ' *' : ''}</label><input class="input" name="n-${TM.esc(l.key)}" value="${TM.esc(state.names[l.key] != null ? state.names[l.key] : nameVal(l.key))}" placeholder="${l.key === 'en' ? 'e.g. Penang Fantasy Rail' : ''}" maxlength="60"></div>`).join('');
+      query('#mp-names').innerHTML = allLangs().map((l) => `<div class="field"><label>Name · ${TM.esc(l.label || l.key)}${l.key === 'en' ? ' *' : ''}</label><input class="input" name="n-${TM.esc(l.key)}" value="${TM.esc(state.names[l.key] != null ? state.names[l.key] : nameVal(l.key))}" placeholder="${l.key === 'en' ? 'e.g. Johor Bahru Rail Transit' : ''}" maxlength="60"></div>`).join('');
       const keys = allLangs().map((l) => l.key).join(', ');
       query('#mp-keys').textContent = keys; field('langorder').placeholder = keys;
     };
     const drawLangs = () => {
-      query('#mp-langs').innerHTML = state.langs.map((l, i) => `<div class="row lang-row" data-i="${i}"><input class="input" data-k="key" value="${TM.esc(l.key)}" placeholder="code, e.g. ja" maxlength="20" aria-label="Language code"><input class="input" data-k="short" value="${TM.esc(l.short)}" placeholder="bar, e.g. 日" maxlength="4" aria-label="Short label for the language bar"><input class="input" data-k="label" value="${TM.esc(l.label)}" placeholder="name, e.g. 日本語" maxlength="40" aria-label="Language name"><button type="button" class="btn sm ghost icon-btn" data-rmlang="${i}" aria-label="Remove language">${TM.icon('x')}</button></div>`).join('');
+      query('#mp-langs').innerHTML = state.langs.map((l, i) => `<div class="row lang-row" data-i="${i}"><input class="input" data-k="key" value="${TM.esc(l.key)}" placeholder="code, e.g. th" maxlength="20" aria-label="Language code"><input class="input" data-k="short" value="${TM.esc(l.short)}" placeholder="bar, e.g. ก" maxlength="4" aria-label="Short label for the language bar"><input class="input" data-k="label" value="${TM.esc(l.label)}" placeholder="name, e.g. 日本語" maxlength="40" aria-label="Language name"><button type="button" class="btn sm ghost icon-btn" data-rmlang="${i}" aria-label="Remove language">${TM.icon('x')}</button></div>`).join('');
       drawNames();
     };
     drawLangs();
@@ -200,6 +201,9 @@
     const statusBoxes = [...root.querySelectorAll('#mp-status [data-status]')], savedStatus = (edit || src0 || {}).statusDisplay || {};
     statusBoxes.forEach((box) => { box.value = typeof savedStatus[box.dataset.status] === 'boolean' ? (savedStatus[box.dataset.status] ? '1' : '0') : ''; });
     query('#mp-statusnow').onclick = () => statusBoxes.forEach((box) => { box.value = TM.state[box.dataset.status] === false ? '0' : '1'; });
+
+    const autoBoxes = [...root.querySelectorAll('[data-auto]')], savedAuto = (edit || src0 || {}).autoSymbols || {};
+    autoBoxes.forEach((box) => { box.value = savedAuto[box.dataset.auto] || box.dataset.auto; });
 
     const paintLogo = () => {
       const meta = edit || maps.find(state.from);
@@ -233,7 +237,7 @@
 
     const submit = async (dialogApi) => {
       const invalid = state.langs.find((l) => (l.key || l.label || l.short) && (!TM.LANG_KEY.test(l.key || '') || TM.BASE_LANGS.some((b) => b.key === l.key)));
-      if (invalid) { showError(`“${invalid.key || invalid.label}” needs a language code like ja, ko, th or pt-BR (lower case, not one of en, ms, zh-Hant, ta).`); return false; }
+      if (invalid) { showError(`“${invalid.key || invalid.label}” needs a language code like th, ja, ko or pt-BR (lower case, and not one of en, ms, zh-Hant, ta).`); return false; }
       const languages = TM.normLanguages(state.langs.filter((l) => l.key));
       if (languages.length < state.langs.filter((l) => l.key).length) { showError('Each extra language needs its own code.'); return false; }
       const names = {};
@@ -248,7 +252,7 @@
       const anchor = geoChanged || !anchorOf() ? Object.assign({}, { x: 28, y: 28 }, prev, { lat, lng, step: Math.round(metres) === step0 && prev.step ? prev.step : metres / 111320 }) : undefined;
       const langOrderRaw = field('langorder').value.trim();
       const langOrder = langOrderRaw ? langOrderRaw.split(',').map((s) => s.trim()).filter((k) => TM.BASE_LANGS.concat(languages).some((l) => l.key === k)) : null;
-      const common = { names, subtitle: field('subtitle').value.trim(), description: field('description').value.trim(), country: field('country').value.trim(), area: field('area').value.trim(), center: [lat, lng], zoom: zoom >= 2 && zoom <= 19 ? zoom : 12, langOrder: langOrder && langOrder.length ? langOrder : null, languages, numberMode: state.numberMode || null, numModeOverride: field('numoverride').checked, statusDisplay: TM.normStatusDisplay(Object.fromEntries(statusBoxes.filter((box) => box.value).map((box) => [box.dataset.status, box.value === '1']))), navigator: field('navigator').checked };
+      const common = { names, subtitle: field('subtitle').value.trim(), description: field('description').value.trim(), country: field('country').value.trim(), area: field('area').value.trim(), center: [lat, lng], zoom: zoom >= 2 && zoom <= 19 ? zoom : 12, langOrder: langOrder && langOrder.length ? langOrder : null, languages, numberMode: state.numberMode || null, numModeOverride: field('numoverride').checked, autoSymbols: TM.normAutoSymbols(Object.fromEntries(autoBoxes.map((box) => [box.dataset.auto, box.value]))), statusDisplay: TM.normStatusDisplay(Object.fromEntries(statusBoxes.filter((box) => box.value).map((box) => [box.dataset.status, box.value === '1']))), navigator: field('navigator').checked };
       try {
         if (edit) {
           if (devEdit) await maps.devSaveMeta(edit.id, Object.assign(common, anchor ? { anchor } : {}));   // the logo file itself is left as it is

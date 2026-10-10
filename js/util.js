@@ -26,12 +26,22 @@ window.TM = window.TM || {};
     (TM.STATUS_TOGGLES || []).forEach((t) => { if (raw && typeof raw[t.opt] === 'boolean') out[t.opt] = raw[t.opt]; });
     return Object.keys(out).length ? out : null;
   };
+  /* ... and which symbol an automatic station / interchange gets (map.json → autoSymbols: { station, interchange }, kinds of
+     TM.SYMBOLS); an absent one is the plain station / ring */
+  TM.AUTO_SYMBOL_KINDS = ['station', 'tick', 'disc', 'dash', 'pill', 'interchange', 'capsule', 'stack', 'hub', 'chain'];
+  TM.normAutoSymbols = (raw) => {
+    const out = {};
+    ['station', 'interchange'].forEach((k) => { if (raw && TM.AUTO_SYMBOL_KINDS.includes(raw[k]) && raw[k] !== k) out[k] = raw[k]; });
+    return Object.keys(out).length ? out : null;
+  };
+  TM.autoSymbol = (which) => { const m = TM.maps && TM.maps.current; return (m && m.autoSymbols && m.autoSymbols[which]) || which; };
   TM.applyMapDisplay = () => {
     const m = TM.maps && TM.maps.current;
     if (!m || !TM.state) return;
     if (m.numberMode) TM.state.numberMode = m.numberMode;
     if (typeof m.numModeOverride === 'boolean') TM.state.numModeOverride = m.numModeOverride;
     Object.entries(m.statusDisplay || {}).forEach(([opt, shown]) => { TM.state[opt] = shown; });
+    if (TM.store && TM.store.lines && TM.store.lines.size) { TM.store._invalidate(); TM.emit('change'); }   // opened map's own defaults changed while it is open: draw again
   };
   TM.LANG_KEY = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
   /* a map's own extra languages, cleaned: valid unique keys not among the four, a short label (≤4) and a name */

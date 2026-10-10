@@ -205,10 +205,17 @@
     TM.state.selected = null;
     store.save(); TM.emit('selection');
     const station = gone && gone.s && store.stations.get(gone.s);
-    if (station && actions.ownsStation(station) && !store.trackLines().some((l) => l.path.some((it) => it.s === station.id))
-      && confirm(`${TM.nameOf(station, TM.state.langs[0]) || station.id} is no longer on any line.\n\nAlso erase it from the map data? (Cancel keeps it as a station without a line.)`)) {
-      store.removeStation(station.id);
-      TM.toast(`${station.id} erased`);
+    if (station && !store.trackLines().some((l) => l.path.some((it) => it.s === station.id))) {
+      if (actions.ownsStation(station) && confirm(`${TM.nameOf(station, TM.state.langs[0]) || station.id} is no longer on any line.\n\nAlso erase it from the map data? (Cancel keeps it as a station without a line.)`)) {
+        store.removeStation(station.id);
+        TM.toast(`${station.id} erased`);
+      } else {
+        /* kept without a line: it no longer stands anywhere on the schematic — a node is worked out again from its real
+           position when a line next calls there */
+        delete store.moves[station.id]; delete station.origNode;
+        if (actions.ownsStation(station)) station.node = null;
+        store.save();
+      }
     }
   };
 
@@ -480,11 +487,11 @@
     store.save();
     return true;
   }
-  const BLANK_BLOCK = { style: 'rapidkl', shape: 'circle', orientation: 'horizontal', size: null, label: '', color: null, members: {}, edges: {}, bundles: {}, symbol: {}, num: {}, labelPos: {}, merged: [] };
+  const BLANK_BLOCK = { style: 'pill_shaped', shape: 'circle', orientation: 'horizontal', size: null, label: '', color: null, members: {}, edges: {}, bundles: {}, symbol: {}, num: {}, labelPos: {}, merged: [] };
   const wrapT = (t) => { const wrapped = t % 1; return wrapped < 0 ? wrapped + 1 : wrapped; };
   actions.enableBlock = (repId) => writeBlock(repId, blockOf(repId) || Object.assign({}, BLANK_BLOCK));
   actions.disableBlock = (repId) => writeBlock(repId, null);
-  actions.setBlockStyle = (repId, style) => { const block = blockOf(repId); return block ? writeBlock(repId, Object.assign({}, block, { style: style === 'shape' ? 'shape' : 'rapidkl' })) : false; };
+  actions.setBlockStyle = (repId, style) => { const block = blockOf(repId); return block ? writeBlock(repId, Object.assign({}, block, { style: style === 'shape' ? 'shape' : 'pill_shaped' })) : false; };
   actions.setBlockShape = (repId, shape) => { const block = blockOf(repId); return block ? writeBlock(repId, Object.assign({}, block, { shape: shape === 'square' ? 'square' : 'circle' })) : false; };
   actions.setBlockOrientation = (repId, orientation) => { const block = blockOf(repId); return block ? writeBlock(repId, Object.assign({}, block, { orientation: orientation === 'vertical' ? 'vertical' : 'horizontal' })) : false; };
   actions.setBlockSize = (repId, size) => { const block = blockOf(repId); return block ? writeBlock(repId, Object.assign({}, block, { size: isFinite(size) && size > 0 ? Math.round(size) : null })) : false; };
@@ -735,7 +742,7 @@
     const id = store.nextLineId(TM.nameOf({ names: fields.names }, 'en'), fields.code);
     const line = store.addLine({
       id, code: (fields.code || id).toUpperCase(), names: fields.names, color: fields.color, mode: fields.mode || 'other',
-      status: fields.status || 'fantasy', author: store.author, style: fields.style || 'octilinear', image: fields.image || null, lookFor: fields.lookFor || null, loop: !!fields.loop, loopDir: fields.loopDir || null, loopNames: fields.loopNames || null, traffic: fields.traffic || null, inOut: !!fields.inOut,
+      status: fields.status || 'fantasy', author: store.author, style: fields.style || 'octilinear', image: fields.image || null, lookFor: fields.lookFor || null, loop: !!fields.loop, loopDir: fields.loopDir || null, loopNames: fields.loopNames || null, traffic: fields.traffic || null, inOut: !!fields.inOut, border: fields.border !== false,
       created: TM.today(), path: [],
     });
     actions.setActive(line.id);
