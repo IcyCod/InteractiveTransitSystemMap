@@ -42,6 +42,7 @@
       /* offered in the journey planner (navigator.html)? A published map has to say so ("navigator": true in its
          map.json); one made in this browser is, unless its details say otherwise */
       navigator: typeof raw.navigator === 'boolean' ? raw.navigator : kind === 'user',
+      navFantasy: raw.navFantasy === true,   // the journey planner offers an option to use fantasy lines and stations
       from: raw.from ? String(raw.from) : null,
     };
   };
@@ -109,7 +110,7 @@
   maps.logoHTML = (meta) => { const logoSrc = maps.logoSrc(meta); return logoSrc ? `<img class="logo" alt="" src="${TM.esc(logoSrc)}">` : maps.DEFAULT_LOGO; };
   maps.logoSrc = (meta) => {
     if (!meta || !meta.logo) return null;
-    return /^(data:|https?:)/i.test(meta.logo) ? meta.logo : (meta.kind === 'files' && !/\.\./.test(meta.logo) ? maps.dir(meta) + meta.logo.replace(/^\/+/, '') : null);
+    return /^(data:|https?:)/i.test(meta.logo) ? meta.logo : (meta.kind === 'files' && !/\.\./.test(meta.logo) ? maps.dir(meta) + meta.logo.replace(/^\/+/, '') + (meta.logoStamp ? '?v=' + meta.logoStamp : '') : null);
   };
   maps.switchTo = (id) => {
     if (!maps.find(id)) return;
@@ -205,6 +206,7 @@
       langOrder: options.langOrder !== undefined ? options.langOrder : sourceMeta.langOrder,
       languages: options.languages !== undefined ? options.languages : sourceMeta.languages,
       navigator: options.navigator !== undefined ? options.navigator : sourceMeta.navigator,
+      navFantasy: options.navFantasy !== undefined ? options.navFantasy : sourceMeta.navFantasy,
       numberMode: options.numberMode !== undefined ? options.numberMode : sourceMeta.numberMode,
       numModeOverride: options.numModeOverride !== undefined ? options.numModeOverride : sourceMeta.numModeOverride,
       statusDisplay: options.statusDisplay !== undefined ? options.statusDisplay : sourceMeta.statusDisplay,
@@ -242,7 +244,7 @@
     const extension = extOf(path);
     return extension === 'svg' ? 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(TM.zip.text(bytes)) : `data:${MIME[extension]};base64,${toBase64(bytes)}`;
   };
-  const fromURI = (dataUri) => {
+  const fromURI = maps.fromURI = (dataUri) => {
     const match = /^data:([^;,]+)((?:;[^;,]+)*),(.*)$/s.exec(dataUri || '');
     if (!match) return null;
     const extension = Object.keys(MIME).find((k) => MIME[k] === match[1] && k !== 'jpeg');
@@ -301,6 +303,7 @@
     if (sourceMeta.statusDisplay) meta.statusDisplay = sourceMeta.statusDisplay;
     if (sourceMeta.autoSymbols) meta.autoSymbols = sourceMeta.autoSymbols;
     meta.navigator = sourceMeta.navigator !== false;
+    if (sourceMeta.navFantasy) meta.navFantasy = true;
     if (mapPackage.codes && Object.keys(mapPackage.codes).length) meta.codes = mapPackage.codes;
     if (mapPackage.labelPos && Object.keys(mapPackage.labelPos).length) meta.labelPos = mapPackage.labelPos;
     if (mapPackage.annotations && Object.keys(mapPackage.annotations).length) meta.annotations = mapPackage.annotations;

@@ -146,6 +146,18 @@
     TM.emit('visibility');
     return true;
   };
+  /* Change where a suggestion goes: right after one of the line's stops, or right before one. */
+  actions.moveSuggestion = (station, lineId, mode, ref) => {
+    const line = store.line(lineId), suggestion = store.suggestions().find((x) => x.station === station && x.line === lineId);
+    if (!line || !suggestion) return false;
+    if (!actions.canEdit(line) && !(suggestion.author && suggestion.author === store.author)) { TM.toast('Only the line\'s owner or whoever suggested it can change it', 'err'); return false; }
+    const stops = line.path.filter((it) => it.s).map((it) => it.s), at = stops.indexOf(ref);
+    if (at < 0) return false;
+    const after = mode === 'before' ? (stops[at - 1] || null) : ref;
+    if (!store.addSuggestion({ station, line: lineId, after, author: suggestion.author, note: suggestion.note })) return false;
+    TM.emit('visibility');
+    return true;
+  };
   /* The real path index a suggested stop would take (where it goes among the line's own items). */
   const realIndexOf = (line, station) => {
     const withSuggestions = store.pathWithSuggestions(line);
@@ -765,6 +777,15 @@
     actions.setActive(root.id + '~' + branch.id);
     TM.state.tool = 'station'; TM.state.insertMode = 'after'; TM.emit('tool');
     return branch;
+  };
+  /* a branch that runs round and back to its junction (the last stop is joined to the first, as on a circle line) */
+  actions.setBranchLoop = (branchLineId, on) => {
+    const branchLine = store.line(branchLineId), root = branchLine && store.rootLine(branchLine);
+    if (!branchLine || !branchLine.rootId || !actions.canEdit(root)) return false;
+    if (on && branchLine.path.filter((it) => it.s).length < 3) { TM.toast('A loop needs the junction and at least two more stops', 'err'); return false; }
+    if (on) branchLine.branch.loop = true; else { delete branchLine.branch.loop; delete branchLine.branch.loopDir; }
+    store.save();
+    return true;
   };
   actions.removeBranch = (branchLineId) => {
     const branchLine = store.line(branchLineId), root = branchLine && store.rootLine(branchLine);

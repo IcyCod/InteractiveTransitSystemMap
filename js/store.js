@@ -321,7 +321,9 @@
       let id = BRANCH_ID.test(String(branch.id)) ? String(branch.id) : 'b' + (i + 1);
       while (seen.has(id)) id += '-2';
       seen.add(id);
-      out.push({ id, path, badges: normBadges(branch.badges), beyond: normBeyond(branch.beyond) });
+      const item = { id, path, badges: normBadges(branch.badges), beyond: normBeyond(branch.beyond) };
+      if (branch.loop) { item.loop = true; if (branch.loopDir === 'clockwise' || branch.loopDir === 'anticlockwise') item.loopDir = branch.loopDir; }   // a branch that runs round and back to its junction
+      out.push(item);
     });
     return out;
   }
@@ -339,7 +341,7 @@
       rootId: { value: parent.id, enumerable: true },     // enumerable, so a copy of it (e.g. store.effectiveLine) still knows its line
       branchId: { value: branch.id, enumerable: true },
       parent: { value: parent }, branch: { value: branch },
-      loop: { value: false, enumerable: true }, loopDir: { value: null, enumerable: true }, circle: { value: null, enumerable: true },
+      loop: { get: () => !!branch.loop, enumerable: true }, loopDir: { get: () => branch.loopDir || null, enumerable: true }, circle: { value: null, enumerable: true },
       branches: { value: [] },
       path: { get: () => branch.path, set: (v) => { branch.path = v; }, enumerable: true },
       badges: { get: () => branch.badges, set: (v) => { branch.badges = v; }, enumerable: true },
@@ -471,6 +473,9 @@
     if (TM.history) TM.history.reset();
   };
 
+  /* the journey planner may use fantasy stations when the map allows it and the viewer asks (navigator "fantasy" option) */
+  store.fantasyRoutable = false;
+  store.useFantasy = (on) => { on = !!on; if (store.fantasyRoutable !== on) { store.fantasyRoutable = on; store._invalidate(); } };
   store._invalidate = () => { store._nodes = null; store._groups = null; store._conns = null; store._complex = null; store._sugg = null; store._track = null; store._svcRoutes = null; store._nonOpSt = null; };
 
   store.save = function (silent) {
@@ -595,6 +600,7 @@
       const branchBadges = normBadges(branch.badges), branchBeyond = normBeyond(branch.beyond);
       if (Object.keys(branchBadges).length) x.badges = branchBadges;
       if (Object.keys(branchBeyond).length) x.beyond = branchBeyond;
+      if (branch.loop) { x.loop = true; if (branch.loopDir) x.loopDir = branch.loopDir; }
       return x;
     });
     if (line.imported) result.imported = true;
@@ -1523,7 +1529,7 @@
     const push = (a, e) => (adjacency.get(a) || adjacency.set(a, []).get(a)).push(e);
     store.trackLines().forEach((line) => {
       const stops = [];
-      line.path.forEach((it, i) => { const x = it.s && store.stations.get(it.s); if (x && x.status !== 'fantasy') stops.push({ id: it.s, i }); });
+      line.path.forEach((it, i) => { const x = it.s && store.stations.get(it.s); if (x && (x.status !== 'fantasy' || store.fantasyRoutable)) stops.push({ id: it.s, i }); });
       stops.forEach((x) => (lineOf.get(x.id) || lineOf.set(x.id, new Set()).get(x.id)).add(line.id));
       const edge = (a, b, wrap) => { push(a.id, { to: b.id, line: line, ia: a.i, ib: b.i, fwd: true, wrap }); push(b.id, { to: a.id, line: line, ia: b.i, ib: a.i, fwd: false, wrap }); };
       for (let k = 0; k + 1 < stops.length; k++) if (stops[k].id !== stops[k + 1].id) edge(stops[k], stops[k + 1], false);

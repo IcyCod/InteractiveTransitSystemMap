@@ -7,7 +7,24 @@
   const codeChip = (l) => `<span class="code" style="background:${l.color};color:${TM.symbols.contrast(l.color)}">${TM.esc(l.code)}</span>`;
   const lineName = (l) => `${TM.esc(TM.displayName(l))}`;
 
+  const pillChip = (l) => `<span class="line-pill" style="background:${l.color};color:${TM.symbols.contrast(l.color)}">${TM.esc(l.code)}</span>`;
   /* ---- suggested stops ---- */
+  const stopsOf = (line) => line.path.filter((it) => it.s).map((it) => it.s);
+  const stopLabel = (id) => `<b>${TM.esc(id)}</b> ${TM.esc(stnName(id))}`;
+  /* where a suggestion goes, in words, and the control to change it (After / Before one of the line's stops) */
+  const sugPlace = (suggestion, line) => {
+    const stops = stopsOf(line), at = suggestion.after ? stops.indexOf(suggestion.after) : -1;
+    if (suggestion.after && at < 0) return 'at the end of the line';
+    const next = stops[at + 1];
+    return suggestion.after ? (next ? `between ${stopLabel(suggestion.after)} and ${stopLabel(next)}` : `after ${stopLabel(suggestion.after)}, at the end`) : (next ? `at the start, before ${stopLabel(next)}` : 'on its own');
+  };
+  const sugPlaceEditor = (suggestion, line) => {
+    const stops = stopsOf(line);
+    if (!stops.length) return '';
+    const mode = suggestion.after && stops.includes(suggestion.after) ? 'after' : 'before', ref = mode === 'after' ? suggestion.after : stops[0];
+    return `<span class="row" style="gap:6px;margin-top:4px" data-sugpos="${TM.esc(suggestion.station)}|${TM.esc(line.id)}"><select class="input" data-pos="mode" style="height:28px;width:78px"><option value="after" ${mode === 'after' ? 'selected' : ''}>After</option><option value="before" ${mode === 'before' ? 'selected' : ''}>Before</option></select>` +
+      `<select class="input" data-pos="ref" style="height:28px;min-width:0;flex:1">${stops.map((id) => `<option value="${TM.esc(id)}" ${id === ref ? 'selected' : ''}>${TM.esc(id)} ${TM.esc(stnName(id))}</option>`).join('')}</select></span>`;
+  };
   const sugNote = (line) => {
     const count = store.suggestionsFor(line.id).length;
     return count ? ` · ${count} suggested${store.suggestShown(line.id, TM.state.showSuggested) ? '' : ' (hidden)'}` : '';
@@ -70,7 +87,7 @@
       const mine = suggestion.author && suggestion.author === store.author;
       return `<div class="sug-item"><div class="row" style="justify-content:space-between;gap:6px"><span data-go="${TM.esc(suggestion.station)}" style="cursor:pointer;min-width:0"><span class="code">${TM.esc(suggestion.station)}</span> <b>${TM.esc(stnName(suggestion.station))}</b></span>` +
         `<span class="row" style="gap:4px;flex:none">${canEdit ? `<button class="btn sm primary" data-sugacc="${TM.esc(suggestion.station)}|${TM.esc(line.id)}" title="Add it to the line">Accept</button>` : ''}${canEdit || mine ? `<button class="btn sm ghost" data-sugdis="${TM.esc(suggestion.station)}|${TM.esc(line.id)}" title="${canEdit ? 'Turn this suggestion down' : 'Take back your suggestion'}">${canEdit ? 'Dismiss' : 'Withdraw'}</button>` : ''}</span></div>` +
-        `<span class="hint">${suggestion.after ? `after <b>${TM.esc(suggestion.after)}</b> ${TM.esc(stnName(suggestion.after))}` : 'at the start'} · by ${TM.esc(suggestion.author || 'anonymous')}${suggestion.note ? ` · “${TM.esc(suggestion.note)}”` : ''}</span></div>`;
+        `<span class="hint">${sugPlace(suggestion, line)} · by ${TM.esc(suggestion.author || 'anonymous')}${suggestion.note ? ` · “${TM.esc(suggestion.note)}”` : ''}</span>${canEdit || mine ? sugPlaceEditor(suggestion, line) : ''}</div>`;
     }).join('');
     return html + '</div>';
   }
@@ -93,7 +110,7 @@
         `<button class="btn sm ghost icon-btn" id="lnDup" title="Make my own copy">${TM.icon('copy')}</button>` +
         `<button class="btn sm ghost icon-btn" id="lnExp" title="Export this line as JSON">${TM.icon('download')}</button>` +
         (actions.ownsLine(activeLine) ? `<button class="btn sm ghost icon-btn danger" id="lnDel" title="Delete line">${TM.icon('trash')}</button>` : '') + '</div></div>' +
-        (activeLine.rootId ? `<div class="row" style="justify-content:space-between;margin:-4px 0 10px;gap:8px"><span class="hint">${branchText(activeLine)} — its first stop is where it joins ${TM.esc(root.code)}.</span><span class="row" style="gap:4px"><button class="btn sm ghost" id="brBack">Back to line</button>${canEdit ? `<button class="btn sm ghost danger" id="brDel">Remove branch</button>` : ''}</span></div>` : '');
+        (activeLine.rootId ? `<div class="row" style="justify-content:space-between;margin:-4px 0 10px;gap:8px"><span class="hint">${branchText(activeLine)} — its first stop is where it joins ${TM.esc(root.code)}.</span><span class="row" style="gap:4px"><button class="btn sm ghost" id="brBack">Back to line</button>${canEdit ? `<button class="btn sm ghost danger" id="brDel">Remove branch</button>` : ''}</span></div>` + (canEdit ? `<label class="check" style="margin:0 0 10px"><input type="checkbox" id="brLoop" ${activeLine.loop ? 'checked' : ''}> Loop — runs round and back to its junction</label>` : '') : '');
       if (TM.state.mode === 'map') html += lengthTable(activeLine);
       if (!canEdit) html += `<p class="hint" style="margin-top:0">By <b>${TM.esc(activeLine.author || 'anonymous')}</b>. Duplicate it to build your own variation and compare.</p>` + `<div class="row" style="margin-bottom:10px"><button class="btn sm primary" id="sugStn">${TM.icon('plus')} Suggest station</button>${insSeg()}</div><p class="hint" style="margin:-4px 0 8px">Proposes a stop on this line without changing it — its owner can accept it. Goes before / after the selected stop, or at the line's end when none is selected.</p><div id="stSearch" style="margin-bottom:8px"></div>`;
       else html += `<div class="row" style="margin-bottom:10px"><button class="btn sm primary" id="addStn">${TM.icon('plus')} Add station</button>${insSeg()}</div><p class="hint" style="margin:-4px 0 8px">Inserted before / after the selected stop, or at the line's end when none is selected.</p><div id="stSearch" style="margin-bottom:8px"></div>${Object.keys(activeLine.badges || {}).length ? `<div class="row" style="margin-bottom:8px;justify-content:space-between"><span class="hint">Line-name badges were moved</span><button class="btn sm ghost" id="badgeReset">↺ Reset badges</button></div>` : '<p class="hint" style="margin:0 0 8px">Drag the line-name badge at either end of the line to move it.</p>'}`;
@@ -171,6 +188,15 @@
       const ids = { newLine: () => ui.openLineDialog(), addStn: () => ui.openStationDialog({}), sugStn: () => ui.openStationDialog({}), sugReset: () => { store.suggestView = {}; store.save(true); TM.emit('visibility'); }, lnEdit: () => ui.openLineDialog(root), lnDup: () => actions.duplicateLine(root.id), lnExp: () => TM.exportUI.lineJSON(root.id), expLn: () => TM.exportUI.lineJSON(root.id), expKml: () => TM.kml.openExport(activeLine && activeLine.id), impKml: () => TM.kml.openImport(), legEdit2: () => ui.openLegendDialog(),
         brBack: () => actions.setActive(root.id), brDel: () => { if (confirm('Remove this branch? Its stations stay.')) actions.removeBranch(activeLine.id); }, svcNew: () => ui.openServiceDialog(null, root.id), expStn: () => TM.exportUI.stationsJSON(), expMap: () => ui.exportMap(TM.maps.current.id), lnDel: () => { if (confirm(`Delete line ${root.code}? Your stations stay in the database.`)) store.removeLine(root.id); }, badgeReset: () => actions.resetBadges(activeLine.id) };
       if (target.closest('button') && ids[target.closest('button').id]) ids[target.closest('button').id]();
+    });
+    document.addEventListener('change', (e) => {
+      const box = e.target.closest && e.target.closest('[data-sugpos]');
+      if (!box) return;
+      const [stationId, lineId] = box.dataset.sugpos.split('|');
+      actions.moveSuggestion(stationId, lineId, box.querySelector('[data-pos="mode"]').value, box.querySelector('[data-pos="ref"]').value);
+    });
+    panel.addEventListener('change', (e) => {
+      if (e.target.id === 'brLoop') { const activeLine = actions.activeLine(); if (!actions.setBranchLoop(activeLine.id, e.target.checked)) e.target.checked = !!activeLine.loop; }
     });
     panel.addEventListener('input', (e) => {
       if (e.target.dataset.typecolor) { TM.state.typeColors[e.target.dataset.typecolor] = e.target.value; renderLegend(); TM.emit('display'); return; }
@@ -474,8 +500,8 @@
       html += `<div class="sec"><div class="sec-h"><h3>Suggested stops</h3></div><p class="hint" style="margin-top:0">${TM.esc(station.id)} is proposed as a stop on:</p>` + suggestions.map((suggestion) => {
         const line = store.lines.get(suggestion.line), mayEdit = actions.canEdit(line), mine = suggestion.author && suggestion.author === store.author;
         if (!line) return '';
-        return `<div class="sug-item"><div class="row" style="justify-content:space-between;gap:6px"><span>${codeChip(line)} <b>${lineName(line)}</b></span><span class="row" style="gap:4px;flex:none">${mayEdit ? `<button class="btn sm primary" data-sugacc="${TM.esc(station.id)}|${TM.esc(suggestion.line)}">Accept</button>` : ''}${mayEdit || mine ? `<button class="btn sm ghost" data-sugdis="${TM.esc(station.id)}|${TM.esc(suggestion.line)}">${mayEdit ? 'Dismiss' : 'Withdraw'}</button>` : ''}</span></div>` +
-          `<span class="hint">${suggestion.after ? `after <b>${TM.esc(suggestion.after)}</b> ${TM.esc(stnName(suggestion.after))}` : 'at the start'} · by ${TM.esc(suggestion.author || 'anonymous')}${suggestion.note ? ` · “${TM.esc(suggestion.note)}”` : ''}</span></div>`;
+        return `<div class="sug-item"><div class="row" style="justify-content:space-between;gap:6px"><span>${pillChip(line)} <b>${lineName(line)}</b></span><span class="row" style="gap:4px;flex:none">${mayEdit ? `<button class="btn sm primary" data-sugacc="${TM.esc(station.id)}|${TM.esc(suggestion.line)}">Accept</button>` : ''}${mayEdit || mine ? `<button class="btn sm ghost" data-sugdis="${TM.esc(station.id)}|${TM.esc(suggestion.line)}">${mayEdit ? 'Dismiss' : 'Withdraw'}</button>` : ''}</span></div>` +
+          `<span class="hint">${sugPlace(suggestion, line)} · by ${TM.esc(suggestion.author || 'anonymous')}${suggestion.note ? ` · “${TM.esc(suggestion.note)}”` : ''}</span>${mayEdit || mine ? sugPlaceEditor(suggestion, line) : ''}</div>`;
       }).join('') + `<p class="hint" style="margin:6px 0 0">${TM.esc(station.id)}'s own status and data are unchanged.</p></div>`;
     }
     if (TM.state.mode !== 'schematic') return html;

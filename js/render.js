@@ -167,8 +167,8 @@
     /* "Hide line ends past hidden stations": a line (not a loop) whose first / last stops are all hidden by their Display
        toggle stops at its outermost stop still shown, instead of running on to nothing. A branch keeps its junction. */
     const trimHiddenEnds = (line) => {
-      if (line.loop) return line;
       const shown = (it) => it.s && store.stations.has(it.s) && !hiddenStatus(store.stations.get(it.s));
+      if (line.loop) return line.path.filter(shown).length >= 2 ? line : Object.assign({}, line, { path: [], origIdx: [] });   // a loop runs through its hidden stops, but is gone when fewer than two remain
       let first = line.rootId ? 0 : line.path.findIndex(shown), last = line.path.length - 1;
       while (last >= 0 && !shown(line.path[last])) last--;
       if (first < 0 || last <= first) return Object.assign({}, line, { path: [], origIdx: [] });

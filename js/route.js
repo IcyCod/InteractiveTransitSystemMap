@@ -18,9 +18,9 @@
   const fallbackWalk = (a, b) => Math.max(1, TM.haversine(a.lat, a.lng, b.lat, b.lng) / 1000 / WALK_SPEED * 60 + WALK_OVERHEAD);
 
   /* flags: { showPlanned, showAbandoned, … } (TM.STATUS_TOGGLES) — a station of a hideable status is usable only when
-     its flag is not false (or it is on a non-operational line and flags.nonOperational asks for those); fantasy is always excluded */
+     its flag is not false (or it is on a non-operational line and flags.nonOperational asks for those); fantasy is excluded unless flags.fantasy */
   router.allowed = (station, flags) => {
-    if (!station || station.status === 'fantasy') return false;
+    if (!station || (station.status === 'fantasy' && !flags.fantasy)) return false;
     const toggle = TM.STATUS_TOGGLES.find((x) => x.status === station.status);
     return !toggle || flags[toggle.opt] !== false || (!!flags.nonOperational && TM.store.nonOpStations().has(station.id));   // a non-operational line asked for brings its own stations
   };
@@ -62,7 +62,7 @@
   function trackLeg(store, line) {
     const raw = [];
     line.path.forEach((it, i) => { if (it.s && store.stations.has(it.s)) raw.push({ id: it.s, st: store.stations.get(it.s), time: it.time, i }); });
-    const stops = raw.filter((r) => r.st.status !== 'fantasy');
+    const stops = raw.filter((r) => r.st.status !== 'fantasy' || store.fantasyRoutable);
     const count = stops.length;
     if (count < 2) return null;
     const closesLoop = line.loop && count > 2 && store.rep(stops[count - 1].id) !== store.rep(stops[0].id);
@@ -655,6 +655,7 @@
   const flagsKey = (f) => JSON.stringify(Object.keys(f).sort().map((k) => [k, f[k] instanceof Set ? [...f[k]].sort() : f[k]]));
   function searched(fromId, toId, opts) {
     const store = TM.store, flags = opts.flags || {}, criterion = opts.by === 'cost' || opts.by === 'transfers' ? opts.by : 'time';
+    store.useFantasy(flags.fantasy);
     ctx.when = opts.when != null ? opts.when : null;   // the departure time the waits are worked out from (none: averages)
     const key = [fromId, toId, criterion, flagsKey(flags), criterion === 'cost' ? JSON.stringify(TM.fares.sel) : '', ctx.when != null ? Math.floor(ctx.when / 60000) : ''].join('\u0001');
     const hit = memo.get(key);
